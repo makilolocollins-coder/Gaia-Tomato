@@ -3,59 +3,86 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import timm
-import torchvision.transforms as T
-from PIL import Image
 import numpy as np
-import os
+from PIL import Image
+from pathlib import Path
+from huggingface_hub import hf_hub_download
 import json
+import base64
+
 
 # ============================================================
-# GAIA TOMATO DISEASE AI
+# GAIA TOMATO AI
+# Production Streamlit Application
 # ============================================================
 
 st.set_page_config(
-    page_title="GAIA Tomato Doctor",
+    page_title="GAIA Tomato AI",
     page_icon="🍅",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
+
 # ============================================================
-# CONFIGURATION
+# APPLICATION CONFIGURATION
 # ============================================================
 
-MODEL_PATH = "GAIA_TOMATO_VIT_BEST.pt"
-CONFIG_PATH = "GAIA_TOMATO_CONFIG.json"
+HF_REPO_ID = "Makky07/gaiatomato07"
 
-IMAGE_SIZE = 224
+MODEL_FILENAME = "GAIA_TOMATO_VIT_BEST.pt"
+CONFIG_FILENAME = "GAIA_TOMATO_CONFIG.json"
 
-DEFAULT_CLASSES = [
-    "Late_blight",
-    "healthy",
-    "Early_blight",
-    "Septoria_leaf_spot",
-    "Tomato_Yellow_Leaf_Curl_Virus",
-    "Bacterial_spot",
-    "Target_Spot",
-    "Tomato_mosaic_virus",
-    "Leaf_Mold",
-    "Spider_mites_Two_spotted_spider_mite",
-    "Powdery_Mildew"
-]
+BACKGROUND_PATH = Path(
+    "assets/tomato_farmer_africa.jpg"
+)
 
-CLASS_NAMES_DISPLAY = {
-    "Late_blight": "Late Blight",
-    "healthy": "Healthy",
-    "Early_blight": "Early Blight",
-    "Septoria_leaf_spot": "Septoria Leaf Spot",
-    "Tomato_Yellow_Leaf_Curl_Virus": "Tomato Yellow Leaf Curl Virus",
-    "Bacterial_spot": "Bacterial Spot",
-    "Target_Spot": "Target Spot",
-    "Tomato_mosaic_virus": "Tomato Mosaic Virus",
-    "Leaf_Mold": "Leaf Mold",
-    "Spider_mites_Two_spotted_spider_mite": "Spider Mites",
-    "Powdery_Mildew": "Powdery Mildew"
+DEFAULT_IMAGE_SIZE = 224
+
+DEVICE = torch.device(
+    "cuda" if torch.cuda.is_available() else "cpu"
+)
+
+
+# ============================================================
+# DISPLAY NAMES
+# ============================================================
+
+DISPLAY_NAMES = {
+    "Late_blight":
+        "Late Blight",
+
+    "healthy":
+        "Healthy",
+
+    "Early_blight":
+        "Early Blight",
+
+    "Septoria_leaf_spot":
+        "Septoria Leaf Spot",
+
+    "Tomato_Yellow_Leaf_Curl_Virus":
+        "Tomato Yellow Leaf Curl Virus",
+
+    "Bacterial_spot":
+        "Bacterial Spot",
+
+    "Target_Spot":
+        "Target Spot",
+
+    "Tomato_mosaic_virus":
+        "Tomato Mosaic Virus",
+
+    "Leaf_Mold":
+        "Leaf Mold",
+
+    "Spider_mites_Two_spotted_spider_mite":
+        "Two-Spotted Spider Mites",
+
+    "Powdery_Mildew":
+        "Powdery Mildew"
 }
+
 
 # ============================================================
 # DISEASE INFORMATION
@@ -65,17 +92,17 @@ DISEASE_INFO = {
 
     "Late_blight": {
         "description":
-            "A serious fungal-like disease that can rapidly damage tomato leaves, stems and fruits.",
+            "A destructive tomato disease that can rapidly affect leaves, stems and fruit.",
         "action":
-            "Remove heavily infected material, improve airflow and avoid prolonged leaf wetness. Consider an appropriate locally approved fungicide.",
+            "Remove severely infected material, improve airflow and avoid prolonged leaf wetness. Use only locally approved treatments.",
         "severity": "High"
     },
 
     "Early_blight": {
         "description":
-            "A fungal disease commonly producing dark lesions and concentric rings on older leaves.",
+            "A fungal disease commonly associated with dark lesions and concentric rings on older leaves.",
         "action":
-            "Remove infected leaves, improve field sanitation and avoid overhead irrigation.",
+            "Remove affected leaves, improve field sanitation and avoid overhead irrigation.",
         "severity": "Moderate"
     },
 
@@ -83,31 +110,31 @@ DISEASE_INFO = {
         "description":
             "A fungal disease producing numerous small spots, often beginning on lower leaves.",
         "action":
-            "Remove infected foliage, reduce leaf wetness and maintain good field sanitation.",
+            "Remove infected foliage, improve sanitation and reduce prolonged leaf moisture.",
         "severity": "Moderate"
     },
 
     "Tomato_Yellow_Leaf_Curl_Virus": {
         "description":
-            "A viral disease commonly associated with leaf curling, yellowing and stunted growth.",
+            "A viral disease commonly associated with leaf curling, yellowing and reduced plant growth.",
         "action":
-            "Control whiteflies, remove severely affected plants and use resistant varieties where available.",
+            "Monitor and manage whiteflies, remove severely affected plants and consider resistant varieties.",
         "severity": "High"
     },
 
     "Bacterial_spot": {
         "description":
-            "A bacterial disease that can cause small dark lesions on leaves and fruit.",
+            "A bacterial disease that can produce dark spots on leaves, stems and fruit.",
         "action":
-            "Remove infected material, avoid working with wet plants and maintain good sanitation.",
+            "Maintain field sanitation, avoid handling wet plants and remove severely infected material.",
         "severity": "Moderate"
     },
 
     "Target_Spot": {
         "description":
-            "A fungal disease characterized by circular target-like lesions on leaves and sometimes fruit.",
+            "A fungal disease characterized by circular target-like lesions.",
         "action":
-            "Improve airflow, remove infected leaves and use appropriate disease-management practices.",
+            "Improve airflow, remove affected leaves and use appropriate locally approved disease management.",
         "severity": "Moderate"
     },
 
@@ -115,210 +142,250 @@ DISEASE_INFO = {
         "description":
             "A viral disease that can cause mosaic patterns, leaf distortion and reduced plant growth.",
         "action":
-            "Remove severely infected plants and disinfect tools. Avoid spreading plant sap between plants.",
+            "Remove severely affected plants and disinfect tools to reduce mechanical spread.",
         "severity": "High"
     },
 
     "Leaf_Mold": {
         "description":
-            "A fungal disease that commonly develops under humid conditions.",
+            "A fungal disease associated with humid conditions and poor ventilation.",
         "action":
-            "Improve ventilation, reduce humidity and avoid prolonged moisture on leaves.",
+            "Improve ventilation, reduce humidity and minimize prolonged moisture on leaves.",
         "severity": "Moderate"
     },
 
     "Spider_mites_Two_spotted_spider_mite": {
         "description":
-            "Spider mites feed on leaves and can cause stippling, yellowing and general plant stress.",
+            "Spider mites feed on tomato leaves and may cause stippling, yellowing and plant stress.",
         "action":
-            "Inspect the underside of leaves and use an appropriate locally approved mite-management strategy.",
+            "Inspect the underside of leaves and apply an appropriate locally approved management strategy if infestation is confirmed.",
         "severity": "Moderate"
     },
 
     "Powdery_Mildew": {
         "description":
-            "A fungal disease characterized by white powdery growth on plant surfaces.",
+            "A fungal disease characterized by powdery white growth on plant surfaces.",
         "action":
-            "Improve airflow, remove severely affected leaves and apply an appropriate locally approved treatment.",
+            "Improve airflow, remove severely affected foliage and use an appropriate locally approved treatment.",
         "severity": "Moderate"
     },
 
     "healthy": {
         "description":
-            "The model did not detect one of the 10 target tomato diseases.",
+            "GAIA did not detect one of the target tomato diseases.",
         "action":
-            "Continue monitoring the plant and maintain good irrigation, nutrition and field hygiene.",
+            "Continue monitoring the crop and maintain good irrigation, nutrition and field hygiene.",
         "severity": "Low"
     }
 }
 
+
 # ============================================================
-# CUSTOM CSS
+# BACKGROUND IMAGE
 # ============================================================
 
-st.markdown(
-    """
-<style>
+def apply_background():
 
-.stApp {
-    background:
-        linear-gradient(
-            rgba(0,0,0,0.58),
-            rgba(0,0,0,0.72)
-        ),
-        url("tomato_farmer_africa.jpg");
+    if not BACKGROUND_PATH.exists():
+        return
 
-    background-size: cover;
-    background-position: center;
-    background-attachment: fixed;
-}
+    encoded = base64.b64encode(
+        BACKGROUND_PATH.read_bytes()
+    ).decode()
 
-/* Main content */
-.block-container {
-    max-width: 1200px;
-    padding-top: 2rem;
-    padding-bottom: 3rem;
-}
+    st.markdown(
+        f"""
+        <style>
 
-/* Header */
-.gaia-header {
-    text-align: center;
-    padding: 25px;
-    border-radius: 22px;
-    background: rgba(0,0,0,0.42);
-    backdrop-filter: blur(10px);
-    margin-bottom: 25px;
-}
+        .stApp {{
+            background-image:
+                linear-gradient(
+                    rgba(0,0,0,0.62),
+                    rgba(0,0,0,0.72)
+                ),
+                url("data:image/jpeg;base64,{encoded}");
 
-.gaia-title {
-    font-size: 48px;
-    font-weight: 800;
-    color: white;
-    margin-bottom: 0;
-}
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+        }}
 
-.gaia-subtitle {
-    color: #eeeeee;
-    font-size: 18px;
-}
+        .block-container {{
+            max-width: 1200px;
+            padding-top: 2rem;
+            padding-bottom: 3rem;
+        }}
 
-/* Cards */
-.gaia-card {
-    background: rgba(255,255,255,0.94);
-    border-radius: 20px;
-    padding: 25px;
-    margin-bottom: 20px;
-    box-shadow: 0px 8px 30px rgba(0,0,0,0.25);
-}
+        .hero {{
+            background: rgba(0,0,0,0.48);
+            backdrop-filter: blur(10px);
+            border-radius: 24px;
+            padding: 38px 30px;
+            text-align: center;
+            color: white;
+            margin-bottom: 28px;
+            border: 1px solid rgba(255,255,255,0.15);
+        }}
 
-/* Prediction */
-.prediction {
-    font-size: 30px;
-    font-weight: 800;
-    color: #222;
-}
+        .hero-title {{
+            font-size: 48px;
+            font-weight: 800;
+            margin-bottom: 8px;
+        }}
 
-.confidence {
-    font-size: 21px;
-    color: #444;
-}
+        .hero-subtitle {{
+            font-size: 18px;
+            opacity: 0.92;
+        }}
 
-/* Small labels */
-.label {
-    font-size: 14px;
-    font-weight: 700;
-    color: #666;
-    text-transform: uppercase;
-}
+        .card {{
+            background: rgba(255,255,255,0.95);
+            border-radius: 22px;
+            padding: 28px;
+            margin-bottom: 22px;
+            box-shadow: 0 10px 35px rgba(0,0,0,0.20);
+        }}
 
-/* Footer */
-.footer {
-    text-align: center;
-    color: white;
-    opacity: 0.8;
-    margin-top: 30px;
-}
+        .result-card {{
+            background: rgba(255,255,255,0.97);
+            border-radius: 22px;
+            padding: 30px;
+            box-shadow: 0 10px 35px rgba(0,0,0,0.20);
+        }}
 
-/* Mobile */
-@media (max-width: 768px) {
+        .prediction {{
+            font-size: 30px;
+            font-weight: 800;
+            color: #171717;
+            margin-top: 8px;
+            margin-bottom: 8px;
+        }}
 
-    .gaia-title {
-        font-size: 34px;
-    }
+        .confidence {{
+            font-size: 20px;
+            color: #444;
+        }}
 
-    .gaia-subtitle {
-        font-size: 15px;
-    }
+        .footer {{
+            text-align: center;
+            color: white;
+            margin-top: 35px;
+            padding: 20px;
+            opacity: 0.85;
+        }}
 
-}
+        @media (max-width: 768px) {{
 
-</style>
-""",
-    unsafe_allow_html=True
+            .hero-title {{
+                font-size: 34px;
+            }}
+
+            .hero-subtitle {{
+                font-size: 15px;
+            }}
+
+            .prediction {{
+                font-size: 25px;
+            }}
+
+        }}
+
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+apply_background()
+
+
+# ============================================================
+# LOAD MODEL CONFIGURATION FROM HUGGING FACE
+# ============================================================
+
+@st.cache_data(show_spinner=False)
+def load_hf_config():
+
+    config_path = hf_hub_download(
+        repo_id=HF_REPO_ID,
+        filename=CONFIG_FILENAME
+    )
+
+    with open(config_path, "r") as file:
+        config = json.load(file)
+
+    return config
+
+
+try:
+
+    CONFIG = load_hf_config()
+
+except Exception as error:
+
+    st.error(
+        "GAIA configuration could not be loaded from Hugging Face."
+    )
+
+    st.code(str(error))
+
+    st.stop()
+
+
+# ============================================================
+# READ EXACT MODEL CONFIG
+# ============================================================
+
+MODEL_NAME = CONFIG.get(
+    "model",
+    "vit_small_patch16_224"
 )
 
-# ============================================================
-# HEADER
-# ============================================================
-
-st.markdown(
-    """
-<div class="gaia-header">
-
-<div class="gaia-title">
-🍅 GAIA Tomato Doctor
-</div>
-
-<div class="gaia-subtitle">
-AI-powered tomato disease screening for farmers
-</div>
-
-</div>
-""",
-    unsafe_allow_html=True
+IMAGE_SIZE = int(
+    CONFIG.get(
+        "image_size",
+        DEFAULT_IMAGE_SIZE
+    )
 )
 
-# ============================================================
-# LOAD CONFIG
-# ============================================================
+CLASS_NAMES = CONFIG.get(
+    "classes",
+    []
+)
 
-@st.cache_resource
-def load_config():
-
-    classes = DEFAULT_CLASSES
-
-    if os.path.exists(CONFIG_PATH):
-
-        try:
-
-            with open(CONFIG_PATH, "r") as f:
-                config = json.load(f)
-
-            if "classes" in config:
-                classes = config["classes"]
-
-        except Exception:
-            pass
-
-    return classes
+NUM_CLASSES = int(
+    CONFIG.get(
+        "num_classes",
+        len(CLASS_NAMES)
+    )
+)
 
 
-CLASS_NAMES = load_config()
+if len(CLASS_NAMES) != NUM_CLASSES:
 
-NUM_CLASSES = len(CLASS_NAMES)
+    st.error(
+        "Model configuration error: "
+        "number of classes does not match class list."
+    )
+
+    st.stop()
+
 
 # ============================================================
-# MODEL
+# MODEL ARCHITECTURE
 # ============================================================
 
 class GaiaTomatoModel(nn.Module):
 
-    def __init__(self, num_classes):
+    def __init__(
+        self,
+        num_classes
+    ):
 
         super().__init__()
 
         self.backbone = timm.create_model(
-            "vit_small_patch16_224",
+            MODEL_NAME,
             pretrained=False,
             num_classes=0
         )
@@ -326,15 +393,33 @@ class GaiaTomatoModel(nn.Module):
         embed_dim = self.backbone.num_features
 
         self.head = nn.Sequential(
-            nn.Linear(embed_dim, 1024),
-            nn.GELU(),
-            nn.Dropout(0.30),
 
-            nn.Linear(1024, 512),
-            nn.GELU(),
-            nn.Dropout(0.20),
+            nn.Linear(
+                embed_dim,
+                1024
+            ),
 
-            nn.Linear(512, num_classes)
+            nn.GELU(),
+
+            nn.Dropout(
+                0.30
+            ),
+
+            nn.Linear(
+                1024,
+                512
+            ),
+
+            nn.GELU(),
+
+            nn.Dropout(
+                0.20
+            ),
+
+            nn.Linear(
+                512,
+                num_classes
+            )
         )
 
     def forward(self, x):
@@ -345,508 +430,29 @@ class GaiaTomatoModel(nn.Module):
 
 
 # ============================================================
-# LOAD MODEL
+# LOAD WEIGHTS
 # ============================================================
 
-@st.cache_resource
+@st.cache_resource(show_spinner="Loading GAIA Tomato AI...")
+
 def load_model():
 
-    device = torch.device(
-        "cuda" if torch.cuda.is_available() else "cpu"
+    model_path = hf_hub_download(
+        repo_id=HF_REPO_ID,
+        filename=MODEL_FILENAME
     )
 
-    model = GaiaTomatoModel(NUM_CLASSES)
-
-    if not os.path.exists(MODEL_PATH):
-
-        raise FileNotFoundError(
-            f"Model not found: {MODEL_PATH}"
-        )
+    model = GaiaTomatoModel(
+        NUM_CLASSES
+    )
 
     checkpoint = torch.load(
-        MODEL_PATH,
-        map_location=device
+        model_path,
+        map_location="cpu"
     )
 
-    # Handle several possible saving formats
+    # --------------------------------------------------------
+    # Handle possible checkpoint formats
+    # --------------------------------------------------------
+
     if isinstance(checkpoint, dict):
-
-        if "state_dict" in checkpoint:
-            state_dict = checkpoint["state_dict"]
-
-        elif "model_state_dict" in checkpoint:
-            state_dict = checkpoint["model_state_dict"]
-
-        else:
-            state_dict = checkpoint
-
-    else:
-        state_dict = checkpoint
-
-    # Remove common prefixes
-    cleaned_state_dict = {}
-
-    for key, value in state_dict.items():
-
-        new_key = key
-
-        if new_key.startswith("model."):
-            new_key = new_key[6:]
-
-        if new_key.startswith("module."):
-            new_key = new_key[7:]
-
-        cleaned_state_dict[new_key] = value
-
-    model.load_state_dict(
-        cleaned_state_dict,
-        strict=False
-    )
-
-    model.to(device)
-    model.eval()
-
-    return model, device
-
-
-try:
-
-    model, device = load_model()
-
-except Exception as e:
-
-    st.error("Could not load the GAIA tomato model.")
-
-    st.code(str(e))
-
-    st.stop()
-
-
-# ============================================================
-# TRANSFORM
-# ============================================================
-
-transform = T.Compose([
-
-    T.Resize((IMAGE_SIZE, IMAGE_SIZE)),
-
-    T.ToTensor(),
-
-    T.Normalize(
-        mean=[0.485, 0.456, 0.406],
-        std=[0.229, 0.224, 0.225]
-    )
-
-])
-
-
-# ============================================================
-# UNCERTAINTY
-# ============================================================
-
-def calculate_uncertainty(probabilities):
-
-    probabilities = np.asarray(probabilities)
-
-    probabilities = np.clip(
-        probabilities,
-        1e-10,
-        1.0
-    )
-
-    entropy = -np.sum(
-        probabilities * np.log(probabilities)
-    )
-
-    max_entropy = np.log(len(probabilities))
-
-    normalized_entropy = entropy / max_entropy
-
-    confidence = np.max(probabilities)
-
-    uncertainty = normalized_entropy
-
-    return entropy, uncertainty, confidence
-
-
-# ============================================================
-# PREDICTION
-# ============================================================
-
-def predict(image):
-
-    image_rgb = image.convert("RGB")
-
-    tensor = transform(image_rgb)
-    tensor = tensor.unsqueeze(0).to(device)
-
-    with torch.no_grad():
-
-        logits = model(tensor)
-
-        probabilities = F.softmax(
-            logits,
-            dim=1
-        )[0]
-
-    probabilities = probabilities.cpu().numpy()
-
-    prediction_index = int(
-        np.argmax(probabilities)
-    )
-
-    prediction = CLASS_NAMES[prediction_index]
-
-    confidence = float(
-        probabilities[prediction_index]
-    )
-
-    entropy, uncertainty, _ = calculate_uncertainty(
-        probabilities
-    )
-
-    ranking = np.argsort(
-        probabilities
-    )[::-1]
-
-    top_predictions = []
-
-    for idx in ranking[:3]:
-
-        top_predictions.append(
-            (
-                CLASS_NAMES[idx],
-                float(probabilities[idx])
-            )
-        )
-
-    return (
-        prediction,
-        confidence,
-        entropy,
-        uncertainty,
-        top_predictions,
-        probabilities
-    )
-
-
-# ============================================================
-# UPLOAD AREA
-# ============================================================
-
-st.markdown(
-    """
-<div class="gaia-card">
-
-<h2>📷 Upload a tomato leaf</h2>
-
-<p>
-Take a clear photograph of the affected tomato leaf and upload it.
-For best results, use good lighting and keep the leaf clearly visible.
-</p>
-
-</div>
-""",
-    unsafe_allow_html=True
-)
-
-uploaded_file = st.file_uploader(
-    "Choose a tomato leaf image",
-    type=["jpg", "jpeg", "png"],
-    label_visibility="collapsed"
-)
-
-
-# ============================================================
-# RUN ANALYSIS
-# ============================================================
-
-if uploaded_file is not None:
-
-    image = Image.open(uploaded_file)
-
-    left, right = st.columns(
-        [1, 1],
-        gap="large"
-    )
-
-    with left:
-
-        st.image(
-            image,
-            caption="Uploaded tomato leaf",
-            use_container_width=True
-        )
-
-    with right:
-
-        with st.spinner(
-            "GAIA is analyzing the leaf..."
-        ):
-
-            (
-                prediction,
-                confidence,
-                entropy,
-                uncertainty,
-                top_predictions,
-                probabilities
-            ) = predict(image)
-
-        display_name = CLASS_NAMES_DISPLAY.get(
-            prediction,
-            prediction
-        )
-
-        # ----------------------------------------------------
-        # Prediction card
-        # ----------------------------------------------------
-
-        st.markdown(
-            f"""
-<div class="gaia-card">
-
-<div class="label">
-GAIA SCREENING RESULT
-</div>
-
-<div class="prediction">
-{display_name}
-</div>
-
-<div class="confidence">
-Confidence: {confidence * 100:.2f}%
-</div>
-
-</div>
-""",
-            unsafe_allow_html=True
-        )
-
-        # ----------------------------------------------------
-        # Uncertainty
-        # ----------------------------------------------------
-
-        if uncertainty >= 0.60 or confidence < 0.60:
-
-            st.warning(
-                f"""
-⚠️ **Low-confidence prediction**
-
-GAIA is not sufficiently certain about this result.
-
-Confidence: **{confidence * 100:.2f}%**
-
-Uncertainty: **{uncertainty * 100:.2f}%**
-
-Please take another clear photograph or have the plant examined by an agricultural professional.
-"""
-            )
-
-            uncertainty_status = "HIGH UNCERTAINTY"
-
-        elif uncertainty >= 0.40 or confidence < 0.75:
-
-            st.info(
-                f"""
-ℹ️ **Moderate uncertainty**
-
-Confidence: **{confidence * 100:.2f}%**
-
-Consider taking another image from a different angle.
-"""
-            )
-
-            uncertainty_status = "MODERATE UNCERTAINTY"
-
-        else:
-
-            st.success(
-                f"""
-✅ **Prediction appears stable**
-
-Confidence: **{confidence * 100:.2f}%**
-"""
-            )
-
-            uncertainty_status = "LOW UNCERTAINTY"
-
-
-    # ========================================================
-    # RESULTS
-    # ========================================================
-
-    st.markdown("---")
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-
-        st.metric(
-            "Prediction",
-            display_name
-        )
-
-    with col2:
-
-        st.metric(
-            "Confidence",
-            f"{confidence * 100:.1f}%"
-        )
-
-    with col3:
-
-        st.metric(
-            "Uncertainty",
-            f"{uncertainty * 100:.1f}%"
-        )
-
-
-    # ========================================================
-    # DISEASE INFORMATION
-    # ========================================================
-
-    info = DISEASE_INFO.get(
-        prediction,
-        {}
-    )
-
-    if info:
-
-        st.markdown(
-            f"""
-<div class="gaia-card">
-
-<h2>🌱 What GAIA detected</h2>
-
-<p>
-{info.get("description", "")}
-</p>
-
-<h3>Recommended next step</h3>
-
-<p>
-{info.get("action", "")}
-</p>
-
-</div>
-""",
-            unsafe_allow_html=True
-        )
-
-
-    # ========================================================
-    # TOP 3
-    # ========================================================
-
-    st.markdown(
-        """
-<div class="gaia-card">
-
-<h2>🔎 Alternative possibilities</h2>
-
-"""
-        ,
-        unsafe_allow_html=True
-    )
-
-    for disease, probability in top_predictions:
-
-        name = CLASS_NAMES_DISPLAY.get(
-            disease,
-            disease
-        )
-
-        st.write(
-            f"**{name}** — {probability * 100:.2f}%"
-        )
-
-        st.progress(
-            float(probability)
-        )
-
-    st.markdown(
-        "</div>",
-        unsafe_allow_html=True
-    )
-
-
-    # ========================================================
-    # TECHNICAL DETAILS
-    # ========================================================
-
-    with st.expander(
-        "Advanced model information"
-    ):
-
-        st.write(
-            f"**Model:** GAIA ViT-Small Patch16 224"
-        )
-
-        st.write(
-            f"**Number of classes:** {NUM_CLASSES}"
-        )
-
-        st.write(
-            f"**Device:** {device}"
-        )
-
-        st.write(
-            f"**Entropy:** {entropy:.4f}"
-        )
-
-        st.write(
-            f"**Normalized uncertainty:** "
-            f"{uncertainty:.4f}"
-        )
-
-        st.write(
-            f"**Status:** {uncertainty_status}"
-        )
-
-
-# ============================================================
-# NO IMAGE
-# ============================================================
-
-else:
-
-    st.markdown(
-        """
-<div class="gaia-card">
-
-<h2>🌿 How to get the best result</h2>
-
-<ul>
-<li>Use a clear image of the tomato leaf.</li>
-<li>Avoid very dark or blurry photographs.</li>
-<li>Make sure the affected area is visible.</li>
-<li>Take the photograph close enough to see symptoms.</li>
-<li>If GAIA reports high uncertainty, take another image.</li>
-</ul>
-
-</div>
-""",
-        unsafe_allow_html=True
-    )
-
-
-# ============================================================
-# FOOTER
-# ============================================================
-
-st.markdown(
-    """
-<div class="footer">
-
-🍅 <b>GAIA</b> — AI-assisted agricultural intelligence
-
-<br><br>
-
-For screening and decision support only. 
-The result should not replace professional agricultural diagnosis.
-
-</div>
-""",
-    unsafe_allow_html=True
-)
