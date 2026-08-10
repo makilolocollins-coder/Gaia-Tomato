@@ -1,27 +1,30 @@
+import json
+import base64
+from pathlib import Path
+
+import numpy as np
+from PIL import Image
+
 import streamlit as st
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import timm
 import torchvision.transforms as transforms
-import numpy as np
+import timm
 
-from PIL import Image
-from pathlib import Path
 from huggingface_hub import hf_hub_download
-import json
-import base64
 
 
 # ============================================================
-# PAGE CONFIG
+# GAIA TOMATO AI
+# Production Streamlit Application
 # ============================================================
 
 st.set_page_config(
     page_title="GAIA Tomato AI",
     page_icon="🍅",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="collapsed",
 )
 
 
@@ -34,15 +37,26 @@ HF_REPO_ID = "Makky07/gaiatomato07"
 MODEL_FILENAME = "GAIA_TOMATO_VIT_BEST.pt"
 CONFIG_FILENAME = "GAIA_TOMATO_CONFIG.json"
 
-BACKGROUND_PATH = Path("assets/tomato_farmer_africa.jpg")
+# Your CURRENT GitHub repository has the image at the ROOT.
+# This also supports assets/tomato_farmer_africa.jpg if you
+# move it there later.
+ROOT_DIR = Path(__file__).resolve().parent
+
+BACKGROUND_CANDIDATES = [
+    ROOT_DIR / "tomato_farmer_africa.jpg",
+    ROOT_DIR / "assets" / "tomato_farmer_africa.jpg",
+]
 
 DEVICE = torch.device(
     "cuda" if torch.cuda.is_available() else "cpu"
 )
 
+DEFAULT_MODEL = "vit_small_patch16_224"
+DEFAULT_IMAGE_SIZE = 224
+
 
 # ============================================================
-# CLASS DISPLAY NAMES
+# CLASS NAMES
 # ============================================================
 
 DISPLAY_NAMES = {
@@ -58,7 +72,7 @@ DISPLAY_NAMES = {
     "Leaf_Mold": "Leaf Mold",
     "Spider_mites_Two_spotted_spider_mite":
         "Two-Spotted Spider Mites",
-    "Powdery_Mildew": "Powdery Mildew"
+    "Powdery_Mildew": "Powdery Mildew",
 }
 
 
@@ -70,82 +84,82 @@ DISEASE_INFO = {
 
     "Late_blight": {
         "description":
-            "A destructive disease that can rapidly affect tomato leaves, stems and fruit.",
+            "A destructive tomato disease that can rapidly affect leaves, stems and fruit.",
         "action":
-            "Remove severely infected material, improve airflow and avoid prolonged leaf wetness.",
-        "severity": "High"
+            "Remove severely infected material, improve airflow and avoid prolonged leaf wetness. Use locally approved disease-management practices.",
+        "severity": "High",
     },
 
     "Early_blight": {
         "description":
-            "A fungal disease commonly associated with dark lesions and concentric rings.",
+            "A fungal disease commonly associated with dark lesions and concentric rings on older leaves.",
         "action":
-            "Remove affected leaves, improve field sanitation and avoid overhead irrigation.",
-        "severity": "Moderate"
+            "Remove affected leaves, improve field sanitation and avoid prolonged leaf wetness.",
+        "severity": "Moderate",
     },
 
     "Septoria_leaf_spot": {
         "description":
             "A fungal disease producing numerous small spots, often beginning on lower leaves.",
         "action":
-            "Remove infected foliage, improve sanitation and reduce prolonged leaf moisture.",
-        "severity": "Moderate"
+            "Remove infected foliage, improve sanitation and reduce prolonged moisture on leaves.",
+        "severity": "Moderate",
     },
 
     "Tomato_Yellow_Leaf_Curl_Virus": {
         "description":
-            "A viral disease commonly associated with leaf curling, yellowing and reduced growth.",
+            "A viral disease commonly associated with leaf curling, yellowing and reduced plant growth.",
         "action":
-            "Monitor whiteflies, remove severely affected plants and consider resistant varieties.",
-        "severity": "High"
+            "Monitor and manage whiteflies, remove severely affected plants and consider resistant varieties.",
+        "severity": "High",
     },
 
     "Bacterial_spot": {
         "description":
             "A bacterial disease that can produce dark spots on leaves, stems and fruit.",
         "action":
-            "Maintain field sanitation and avoid handling wet plants.",
-        "severity": "Moderate"
+            "Maintain field sanitation, avoid handling wet plants and remove severely infected material.",
+        "severity": "Moderate",
     },
 
     "Target_Spot": {
         "description":
             "A fungal disease characterized by circular target-like lesions.",
         "action":
-            "Improve airflow, remove affected leaves and use locally approved management.",
-        "severity": "Moderate"
+            "Improve airflow, remove affected leaves and use locally approved disease-management practices.",
+        "severity": "Moderate",
     },
 
     "Tomato_mosaic_virus": {
         "description":
-            "A viral disease that can cause mosaic patterns, leaf distortion and reduced growth.",
+            "A viral disease that can cause mosaic patterns, leaf distortion and reduced plant growth.",
         "action":
             "Remove severely affected plants and disinfect tools to reduce mechanical spread.",
-        "severity": "High"
+        "severity": "High",
     },
 
     "Leaf_Mold": {
         "description":
             "A fungal disease associated with humid conditions and poor ventilation.",
         "action":
-            "Improve ventilation, reduce humidity and minimize prolonged leaf moisture.",
-        "severity": "Moderate"
+            "Improve ventilation, reduce humidity and minimize prolonged moisture on leaves.",
+        "severity": "Moderate",
     },
 
     "Spider_mites_Two_spotted_spider_mite": {
         "description":
             "Spider mites feed on tomato leaves and may cause stippling, yellowing and plant stress.",
         "action":
-            "Inspect the underside of leaves and apply an appropriate locally approved management strategy.",
-        "severity": "Moderate"
+            "Inspect the underside of leaves and use an appropriate locally approved management strategy if infestation is confirmed.",
+        "severity": "Moderate",
     },
 
     "Powdery_Mildew": {
         "description":
             "A fungal disease characterized by powdery white growth on plant surfaces.",
         "action":
-            "Improve airflow, remove severely affected foliage and use appropriate locally approved treatment.",
-        "severity": "Moderate"
+            "Improve airflow, remove severely affected foliage and use an appropriate locally approved treatment.",
+        "severity": "Moderate",
     },
 
     "healthy": {
@@ -153,70 +167,78 @@ DISEASE_INFO = {
             "GAIA did not detect one of the target tomato diseases.",
         "action":
             "Continue monitoring the crop and maintain good irrigation, nutrition and field hygiene.",
-        "severity": "Low"
-    }
+        "severity": "Low",
+    },
 }
 
 
 # ============================================================
-# BACKGROUND
+# BACKGROUND IMAGE
 # ============================================================
 
-def get_background():
+def find_background():
 
-    if not BACKGROUND_PATH.exists():
+    for path in BACKGROUND_CANDIDATES:
+        if path.exists():
+            return path
+
+    return None
+
+
+def background_data_uri():
+
+    path = find_background()
+
+    if path is None:
         return None
 
     try:
         encoded = base64.b64encode(
-            BACKGROUND_PATH.read_bytes()
-        ).decode()
+            path.read_bytes()
+        ).decode("utf-8")
 
-        return (
-            f"data:image/jpeg;base64,{encoded}"
-        )
+        return f"data:image/jpeg;base64,{encoded}"
 
     except Exception:
         return None
 
 
-background = get_background()
+BACKGROUND_URI = background_data_uri()
 
 
 # ============================================================
 # PREMIUM UI
 # ============================================================
 
-if background:
+if BACKGROUND_URI:
 
     background_css = f"""
-        .stApp {{
-            background:
-                linear-gradient(
-                    120deg,
-                    rgba(7, 20, 11, 0.88),
-                    rgba(10, 35, 17, 0.70)
-                ),
-                url("{background}");
+    .stApp {{
+        background-image:
+            linear-gradient(
+                rgba(5, 18, 9, 0.86),
+                rgba(7, 25, 12, 0.76)
+            ),
+            url("{BACKGROUND_URI}");
 
-            background-size: cover;
-            background-position: center;
-            background-attachment: fixed;
-        }}
+        background-size: cover;
+        background-position: center;
+        background-attachment: fixed;
+    }}
     """
 
 else:
 
     background_css = """
-        .stApp {
-            background:
-                linear-gradient(
-                    135deg,
-                    #06140a,
-                    #123b1d,
-                    #071b0c
-                );
-        }
+    .stApp {
+        background:
+            linear-gradient(
+                135deg,
+                #06140a,
+                #123b1d,
+                #071b0c
+            );
+    }
     """
 
 
@@ -244,35 +266,31 @@ st.markdown(
         padding-bottom: 4rem;
     }}
 
-    /* Navigation */
-
     .nav {{
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 15px 5px 25px 5px;
+        padding: 15px 5px 25px;
         color: white;
     }}
 
     .brand {{
-        font-size: 25px;
+        font-size: 26px;
         font-weight: 900;
-        letter-spacing: -0.5px;
     }}
 
     .brand span {{
-        color: #8ee26b;
+        color: #91e66d;
     }}
 
     .nav-right {{
-        font-size: 13px;
-        color: rgba(255,255,255,0.75);
+        font-size: 12px;
+        color: rgba(255,255,255,0.72);
+        letter-spacing: 1px;
     }}
 
-    /* Hero */
-
     .hero {{
-        padding: 55px 30px 60px 30px;
+        padding: 45px 20px 55px;
         text-align: center;
         color: white;
     }}
@@ -302,24 +320,21 @@ st.markdown(
     }}
 
     .hero p {{
-        max-width: 650px;
-        margin: 22px auto 0 auto;
+        max-width: 680px;
+        margin: 22px auto 0;
         font-size: 18px;
         line-height: 1.6;
-        color: rgba(255,255,255,0.83);
+        color: rgba(255,255,255,0.84);
     }}
 
-    /* Glass cards */
-
     .glass {{
-        background: rgba(255,255,255,0.095);
-        border: 1px solid rgba(255,255,255,0.16);
+        background: rgba(255,255,255,0.10);
+        border: 1px solid rgba(255,255,255,0.17);
         border-radius: 26px;
         padding: 28px;
         backdrop-filter: blur(18px);
         -webkit-backdrop-filter: blur(18px);
-        box-shadow:
-            0 25px 70px rgba(0,0,0,0.22);
+        box-shadow: 0 25px 70px rgba(0,0,0,0.22);
         color: white;
     }}
 
@@ -327,8 +342,6 @@ st.markdown(
     .glass h3 {{
         color: white;
     }}
-
-    /* Upload */
 
     .upload-title {{
         font-size: 24px;
@@ -341,15 +354,12 @@ st.markdown(
         margin-bottom: 18px;
     }}
 
-    /* Results */
-
     .result {{
         background: rgba(255,255,255,0.97);
         border-radius: 26px;
-        padding: 32px;
+        padding: 30px;
         color: #122016;
-        box-shadow:
-            0 25px 70px rgba(0,0,0,0.28);
+        box-shadow: 0 25px 70px rgba(0,0,0,0.28);
     }}
 
     .result-label {{
@@ -361,12 +371,24 @@ st.markdown(
     }}
 
     .result-name {{
-        font-size: 38px;
+        font-size: 36px;
         font-weight: 900;
-        letter-spacing: -1.5px;
-        margin-top: 5px;
-        margin-bottom: 15px;
         color: #142519;
+        margin: 6px 0 15px;
+    }}
+
+    .big-number {{
+        font-size: 40px;
+        font-weight: 900;
+        color: #18351d;
+    }}
+
+    .metric-label {{
+        color: #718078;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        font-weight: 700;
     }}
 
     .stable {{
@@ -389,20 +411,6 @@ st.markdown(
         font-weight: 800;
     }}
 
-    .big-number {{
-        font-size: 40px;
-        font-weight: 900;
-        color: #18351d;
-    }}
-
-    .metric-label {{
-        color: #718078;
-        font-size: 12px;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        font-weight: 700;
-    }}
-
     .severity-high {{
         color: #a82d2d;
         font-weight: 900;
@@ -418,29 +426,12 @@ st.markdown(
         font-weight: 900;
     }}
 
-    /* Footer */
-
-    .footer {{
-        text-align: center;
-        color: rgba(255,255,255,0.60);
-        padding: 45px 10px 15px;
-        font-size: 13px;
-    }}
-
-    /* Streamlit uploader */
-
     [data-testid="stFileUploader"] {{
         background: rgba(255,255,255,0.07);
         border: 2px dashed rgba(142,226,107,0.55);
         border-radius: 20px;
         padding: 10px;
     }}
-
-    [data-testid="stFileUploaderDropzone"] {{
-        background: rgba(255,255,255,0.04);
-    }}
-
-    /* Buttons */
 
     .stButton > button {{
         width: 100%;
@@ -451,20 +442,23 @@ st.markdown(
         font-weight: 900;
         padding: 14px 20px;
         font-size: 16px;
-        transition: 0.2s ease;
     }}
 
     .stButton > button:hover {{
         background: #a0ed7e;
-        transform: translateY(-1px);
     }}
 
-    /* Mobile */
+    .footer {{
+        text-align: center;
+        color: rgba(255,255,255,0.60);
+        padding: 45px 10px 15px;
+        font-size: 13px;
+    }}
 
     @media(max-width: 768px) {{
 
         .hero {{
-            padding: 35px 10px 40px;
+            padding: 30px 10px 40px;
         }}
 
         .hero h1 {{
@@ -477,19 +471,22 @@ st.markdown(
 
         .glass,
         .result {{
-            padding: 22px;
+            padding: 21px;
             border-radius: 20px;
         }}
 
         .result-name {{
-            font-size: 30px;
+            font-size: 29px;
         }}
 
+        .nav-right {{
+            display: none;
+        }}
     }}
 
     </style>
     """,
-    unsafe_allow_html=True
+    unsafe_allow_html=True,
 )
 
 
@@ -500,7 +497,6 @@ st.markdown(
 st.markdown(
     """
     <div class="nav">
-
         <div class="brand">
             GAIA<span>🍅</span>
         </div>
@@ -508,10 +504,9 @@ st.markdown(
         <div class="nav-right">
             TOMATO HEALTH INTELLIGENCE
         </div>
-
     </div>
     """,
-    unsafe_allow_html=True
+    unsafe_allow_html=True,
 )
 
 
@@ -540,63 +535,79 @@ st.markdown(
 
     </div>
     """,
-    unsafe_allow_html=True
+    unsafe_allow_html=True,
 )
 
 
 # ============================================================
-# LOAD CONFIG
+# LOAD CONFIGURATION
 # ============================================================
 
 @st.cache_data(show_spinner=False)
 def load_config():
 
-    path = hf_hub_download(
+    config_path = hf_hub_download(
         repo_id=HF_REPO_ID,
-        filename=CONFIG_FILENAME
+        filename=CONFIG_FILENAME,
     )
 
     with open(
-        path,
+        config_path,
         "r",
-        encoding="utf-8"
-    ) as f:
+        encoding="utf-8",
+    ) as file:
 
-        return json.load(f)
+        return json.load(file)
 
 
 try:
 
     CONFIG = load_config()
 
-except Exception as e:
+except Exception as error:
 
-    st.error("Unable to load GAIA configuration.")
-    st.code(str(e))
+    st.error(
+        "GAIA could not load its model configuration."
+    )
+
+    st.code(str(error))
+
     st.stop()
 
 
 MODEL_NAME = CONFIG.get(
     "model",
-    "vit_small_patch16_224"
+    DEFAULT_MODEL,
 )
 
 IMAGE_SIZE = int(
     CONFIG.get(
         "image_size",
-        224
+        DEFAULT_IMAGE_SIZE,
     )
 )
 
 CLASS_NAMES = CONFIG.get(
     "classes",
-    []
+    [
+        "Late_blight",
+        "healthy",
+        "Early_blight",
+        "Septoria_leaf_spot",
+        "Tomato_Yellow_Leaf_Curl_Virus",
+        "Bacterial_spot",
+        "Target_Spot",
+        "Tomato_mosaic_virus",
+        "Leaf_Mold",
+        "Spider_mites_Two_spotted_spider_mite",
+        "Powdery_Mildew",
+    ],
 )
 
 NUM_CLASSES = int(
     CONFIG.get(
         "num_classes",
-        len(CLASS_NAMES)
+        len(CLASS_NAMES),
     )
 )
 
@@ -604,26 +615,31 @@ NUM_CLASSES = int(
 if len(CLASS_NAMES) != NUM_CLASSES:
 
     st.error(
-        "The model configuration is inconsistent."
+        "The number of classes in the model configuration "
+        "does not match the class list."
     )
 
     st.stop()
 
 
 # ============================================================
-# MODEL
+# MODEL ARCHITECTURE
 # ============================================================
 
 class GaiaTomatoModel(nn.Module):
 
-    def __init__(self, num_classes):
+    def __init__(
+        self,
+        model_name,
+        num_classes,
+    ):
 
         super().__init__()
 
         self.backbone = timm.create_model(
-            MODEL_NAME,
+            model_name,
             pretrained=False,
-            num_classes=0
+            num_classes=0,
         )
 
         embed_dim = self.backbone.num_features
@@ -632,103 +648,208 @@ class GaiaTomatoModel(nn.Module):
 
             nn.Linear(
                 embed_dim,
-                1024
+                1024,
             ),
 
             nn.GELU(),
 
-            nn.Dropout(0.30),
+            nn.Dropout(
+                0.30,
+            ),
 
             nn.Linear(
                 1024,
-                512
+                512,
             ),
 
             nn.GELU(),
 
-            nn.Dropout(0.20),
+            nn.Dropout(
+                0.20,
+            ),
 
             nn.Linear(
                 512,
-                num_classes
-            )
+                num_classes,
+            ),
         )
 
     def forward(self, x):
 
-        return self.head(
-            self.backbone(x)
+        features = self.backbone(x)
+
+        return self.head(features)
+
+
+# ============================================================
+# ROBUST CHECKPOINT LOADER
+# ============================================================
+
+def extract_state_dict(checkpoint):
+
+    if isinstance(checkpoint, nn.Module):
+
+        return checkpoint.state_dict()
+
+    if not isinstance(checkpoint, dict):
+
+        raise RuntimeError(
+            "Unsupported checkpoint format."
         )
 
+    for key in [
+        "state_dict",
+        "model_state_dict",
+        "model",
+        "net",
+    ]:
 
-# ============================================================
-# LOAD WEIGHTS
-# ============================================================
+        candidate = checkpoint.get(key)
 
-@st.cache_resource(
-    show_spinner="Initializing GAIA Tomato AI..."
-)
-def load_model():
+        if isinstance(candidate, dict):
 
-    model_path = hf_hub_download(
-        repo_id=HF_REPO_ID,
-        filename=MODEL_FILENAME
-    )
+            return candidate
 
-    model = GaiaTomatoModel(
-        NUM_CLASSES
-    )
+    # Direct state dictionary
+    return checkpoint
 
-    checkpoint = torch.load(
-        model_path,
-        map_location="cpu"
-    )
 
-    if isinstance(checkpoint, dict):
-
-        if "state_dict" in checkpoint:
-
-            state_dict = checkpoint[
-                "state_dict"
-            ]
-
-        elif "model_state_dict" in checkpoint:
-
-            state_dict = checkpoint[
-                "model_state_dict"
-            ]
-
-        else:
-
-            state_dict = checkpoint
-
-    else:
-
-        state_dict = checkpoint
-
+def clean_state_dict(state_dict):
 
     cleaned = {}
 
     for key, value in state_dict.items():
 
-        key = key.replace(
+        new_key = key
+
+        prefixes = [
             "module.",
-            "",
-            1
-        )
-
-        key = key.replace(
             "model.",
-            "",
-            1
+            "net.",
+        ]
+
+        changed = True
+
+        while changed:
+
+            changed = False
+
+            for prefix in prefixes:
+
+                if new_key.startswith(prefix):
+
+                    new_key = new_key[
+                        len(prefix):
+                    ]
+
+                    changed = True
+
+        cleaned[new_key] = value
+
+    return cleaned
+
+
+# ============================================================
+# LOAD MODEL
+# ============================================================
+
+@st.cache_resource(
+    show_spinner=False,
+)
+def load_model():
+
+    model_path = hf_hub_download(
+        repo_id=HF_REPO_ID,
+        filename=MODEL_FILENAME,
+    )
+
+    model = GaiaTomatoModel(
+        MODEL_NAME,
+        NUM_CLASSES,
+    )
+
+    checkpoint = torch.load(
+        model_path,
+        map_location="cpu",
+        weights_only=False,
+    )
+
+    state_dict = extract_state_dict(
+        checkpoint
+    )
+
+    state_dict = clean_state_dict(
+        state_dict
+    )
+
+    model_state = model.state_dict()
+
+    # Check compatibility before loading.
+    missing = [
+        key
+        for key in model_state
+        if key not in state_dict
+    ]
+
+    unexpected = [
+        key
+        for key in state_dict
+        if key not in model_state
+    ]
+
+    shape_errors = []
+
+    for key in model_state:
+
+        if key in state_dict:
+
+            if (
+                tuple(
+                    model_state[key].shape
+                )
+                !=
+                tuple(
+                    state_dict[key].shape
+                )
+            ):
+
+                shape_errors.append(
+                    (
+                        key,
+                        tuple(
+                            model_state[key].shape
+                        ),
+                        tuple(
+                            state_dict[key].shape
+                        ),
+                    )
+                )
+
+    if missing or shape_errors:
+
+        message = (
+            "The Hugging Face checkpoint does not "
+            "match the GAIA model architecture.\n\n"
         )
 
-        cleaned[key] = value
+        if missing:
 
+            message += (
+                f"Missing keys: {missing[:10]}\n"
+            )
+
+        if shape_errors:
+
+            message += (
+                f"Shape mismatches: "
+                f"{shape_errors[:5]}\n"
+            )
+
+        raise RuntimeError(message)
 
     model.load_state_dict(
-        cleaned,
-        strict=True
+        state_dict,
+        strict=True,
     )
 
     model.to(DEVICE)
@@ -737,37 +858,33 @@ def load_model():
     return model
 
 
-try:
-
-    model = load_model()
-
-except Exception as e:
-
-    st.error(
-        "GAIA could not load the trained model."
-    )
-
-    st.code(str(e))
-
-    st.stop()
-
-
 # ============================================================
-# PREPROCESSING
+# IMAGE PREPROCESSING
 # ============================================================
 
 transform = transforms.Compose([
 
     transforms.Resize(
-        (IMAGE_SIZE, IMAGE_SIZE)
+        (
+            IMAGE_SIZE,
+            IMAGE_SIZE,
+        )
     ),
 
     transforms.ToTensor(),
 
     transforms.Normalize(
-        [0.485, 0.456, 0.406],
-        [0.229, 0.224, 0.225]
-    )
+        [
+            0.485,
+            0.456,
+            0.406,
+        ],
+        [
+            0.229,
+            0.224,
+            0.225,
+        ],
+    ),
 ])
 
 
@@ -775,7 +892,10 @@ transform = transforms.Compose([
 # PREDICTION
 # ============================================================
 
-def predict(image):
+def predict(
+    model,
+    image,
+):
 
     tensor = transform(
         image.convert("RGB")
@@ -785,30 +905,33 @@ def predict(image):
         0
     ).to(DEVICE)
 
-    with torch.no_grad():
+    with torch.inference_mode():
 
-        logits = model(tensor)
+        logits = model(
+            tensor
+        )
 
         probabilities = F.softmax(
             logits,
-            dim=1
+            dim=1,
         )[0]
 
     confidence, index = torch.max(
         probabilities,
-        dim=0
+        dim=0,
     )
 
     probabilities = (
         probabilities
+        .detach()
         .cpu()
         .numpy()
     )
 
     return (
         index.item(),
-        confidence.item(),
-        probabilities
+        float(confidence.item()),
+        probabilities,
     )
 
 
@@ -816,37 +939,50 @@ def predict(image):
 # UNCERTAINTY
 # ============================================================
 
-def uncertainty_score(probabilities):
+def calculate_uncertainty(
+    probabilities,
+):
+
+    probabilities = np.asarray(
+        probabilities,
+        dtype=np.float64,
+    )
 
     probabilities = np.clip(
         probabilities,
         1e-12,
-        1.0
+        1.0,
     )
 
-    entropy = -np.sum(
-        probabilities *
-        np.log(probabilities)
+    entropy = float(
+        -np.sum(
+            probabilities
+            * np.log(
+                probabilities
+            )
+        )
     )
 
-    max_entropy = np.log(
-        len(probabilities)
+    max_entropy = float(
+        np.log(
+            len(probabilities)
+        )
     )
 
     normalized = (
         entropy / max_entropy
         if max_entropy > 0
-        else 0
+        else 0.0
     )
 
     return (
         entropy,
-        normalized * 100
+        normalized * 100.0,
     )
 
 
 # ============================================================
-# UPLOAD AREA
+# UPLOAD SECTION
 # ============================================================
 
 st.markdown(
@@ -858,481 +994,509 @@ st.markdown(
         </div>
 
         <div class="upload-subtitle">
-            Upload a clear photo. For best results,
-            keep the leaf well lit and visible.
+            Upload a clear photograph of a tomato leaf.
+            For best results, use good lighting and keep
+            the leaf clearly visible.
         </div>
 
     </div>
     """,
-    unsafe_allow_html=True
+    unsafe_allow_html=True,
 )
+
 
 uploaded_file = st.file_uploader(
-    "Drop your image here",
-    type=["jpg", "jpeg", "png"],
-    label_visibility="collapsed"
+    "Upload tomato leaf image",
+    type=[
+        "jpg",
+        "jpeg",
+        "png",
+    ],
+    label_visibility="collapsed",
 )
 
 
 # ============================================================
-# PROCESS IMAGE
+# LOAD MODEL ONLY WHEN NEEDED
 # ============================================================
 
-if uploaded_file:
+if uploaded_file is not None:
 
     image = Image.open(
         uploaded_file
     ).convert("RGB")
 
-
     st.markdown(
         "<br>",
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
-
 
     image_col, result_col = st.columns(
-        [0.9, 1.1],
-        gap="large"
+        [0.95, 1.05],
+        gap="large",
     )
 
-
-    # ========================================================
+    # --------------------------------------------------------
     # IMAGE
-    # ========================================================
+    # --------------------------------------------------------
 
     with image_col:
 
         st.markdown(
             """
             <div class="glass">
-
                 <h3>Uploaded leaf</h3>
-
+                <p style="color:rgba(255,255,255,0.7);">
+                    Review the image before analysis.
+                </p>
             </div>
             """,
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )
 
         st.image(
             image,
-            use_container_width=True
+            use_container_width=True,
         )
 
         st.markdown(
             "<br>",
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )
-
 
         analyze = st.button(
             "🍅  ANALYZE WITH GAIA",
-            use_container_width=True
+            use_container_width=True,
         )
 
-
-    # ========================================================
+    # --------------------------------------------------------
     # RESULT
-    # ========================================================
+    # --------------------------------------------------------
 
     with result_col:
 
-        if analyze:
-
-            with st.spinner(
-                "GAIA is examining the leaf..."
-            ):
-
-                (
-                    index,
-                    confidence,
-                    probabilities
-                ) = predict(image)
-
-
-            predicted_class = CLASS_NAMES[
-                index
-            ]
-
-            prediction_name = DISPLAY_NAMES.get(
-                predicted_class,
-                predicted_class
-            )
-
-
-            entropy, uncertainty = (
-                uncertainty_score(
-                    probabilities
-                )
-            )
-
-
-            confidence_pct = (
-                confidence * 100
-            )
-
-
-            is_uncertain = (
-
-                confidence_pct < 60
-
-                or
-
-                uncertainty > 60
-            )
-
-
-            info = DISEASE_INFO.get(
-                predicted_class,
-                {}
-            )
-
-
-            severity = info.get(
-                "severity",
-                "Unknown"
-            )
-
-
-            severity_class = (
-                "severity-high"
-                if severity == "High"
-                else
-                "severity-moderate"
-                if severity == "Moderate"
-                else
-                "severity-low"
-            )
-
-
-            status_html = (
-
-                '<span class="uncertain">'
-                '⚠ REVIEW IMAGE'
-                '</span>'
-
-                if is_uncertain
-
-                else
-
-                '<span class="stable">'
-                '✓ PREDICTION STABLE'
-                '</span>'
-            )
-
+        if not analyze:
 
             st.markdown(
-                f"""
+                """
                 <div class="result">
 
                     <div class="result-label">
-                        GAIA DETECTION
+                        READY
                     </div>
 
                     <div class="result-name">
-                        {prediction_name}
+                        Ready to analyze
                     </div>
 
-                    {status_html}
-
-                    <br><br>
-
-                    <div class="result-label">
-                        CONFIDENCE
-                    </div>
-
-                    <div class="big-number">
-                        {confidence_pct:.1f}%
-                    </div>
+                    <p>
+                        Click <b>Analyze with GAIA</b>
+                        to run the trained Vision Transformer.
+                    </p>
 
                 </div>
                 """,
-                unsafe_allow_html=True
+                unsafe_allow_html=True,
             )
 
+        else:
 
-            st.progress(
-                min(
-                    max(
-                        float(confidence),
-                        0.0
-                    ),
-                    1.0
+            try:
+
+                with st.spinner(
+                    "GAIA is analyzing the leaf..."
+                ):
+
+                    model = load_model()
+
+                    (
+                        index,
+                        confidence,
+                        probabilities,
+                    ) = predict(
+                        model,
+                        image,
+                    )
+
+                predicted_class = CLASS_NAMES[
+                    index
+                ]
+
+                prediction_name = DISPLAY_NAMES.get(
+                    predicted_class,
+                    predicted_class,
                 )
-            )
 
+                entropy, uncertainty = (
+                    calculate_uncertainty(
+                        probabilities
+                    )
+                )
+
+                confidence_pct = (
+                    confidence * 100.0
+                )
+
+                # Conservative screening rule.
+                is_uncertain = (
+                    confidence_pct < 60.0
+                    or
+                    uncertainty > 60.0
+                )
+
+                info = DISEASE_INFO.get(
+                    predicted_class,
+                    {},
+                )
+
+                severity = info.get(
+                    "severity",
+                    "Unknown",
+                )
+
+                if severity == "High":
+
+                    severity_class = (
+                        "severity-high"
+                    )
+
+                elif severity == "Moderate":
+
+                    severity_class = (
+                        "severity-moderate"
+                    )
+
+                else:
+
+                    severity_class = (
+                        "severity-low"
+                    )
+
+                if is_uncertain:
+
+                    status_html = (
+                        '<span class="uncertain">'
+                        '⚠ REVIEW IMAGE'
+                        '</span>'
+                    )
+
+                else:
+
+                    status_html = (
+                        '<span class="stable">'
+                        '✓ PREDICTION STABLE'
+                        '</span>'
+                    )
+
+                st.markdown(
+                    f"""
+                    <div class="result">
+
+                        <div class="result-label">
+                            GAIA DETECTION
+                        </div>
+
+                        <div class="result-name">
+                            {prediction_name}
+                        </div>
+
+                        {status_html}
+
+                        <br><br>
+
+                        <div class="result-label">
+                            CONFIDENCE
+                        </div>
+
+                        <div class="big-number">
+                            {confidence_pct:.2f}%
+                        </div>
+
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+                st.progress(
+                    max(
+                        0.0,
+                        min(
+                            confidence,
+                            1.0,
+                        ),
+                    )
+                )
+
+                st.markdown(
+                    "<br>",
+                    unsafe_allow_html=True,
+                )
+
+                m1, m2 = st.columns(2)
+
+                with m1:
+
+                    st.markdown(
+                        f"""
+                        <div class="glass">
+
+                            <div class="metric-label">
+                                Uncertainty
+                            </div>
+
+                            <div style="
+                                font-size:34px;
+                                font-weight:900;
+                                color:white;
+                            ">
+                                {uncertainty:.1f}%
+                            </div>
+
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+
+                with m2:
+
+                    st.markdown(
+                        f"""
+                        <div class="glass">
+
+                            <div class="metric-label">
+                                Severity
+                            </div>
+
+                            <div class="{severity_class}"
+                                 style="font-size:28px;">
+                                {severity}
+                            </div>
+
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+
+            except Exception as error:
+
+                st.error(
+                    "GAIA could not complete the analysis."
+                )
+
+                st.code(
+                    str(error)
+                )
+
+                st.info(
+                    "If this is a model-loading error, "
+                    "the Hugging Face checkpoint and the "
+                    "model architecture need to be checked."
+                )
+
+                st.stop()
+
+
+# ============================================================
+# RESULTS BELOW IMAGE
+# ============================================================
+
+if uploaded_file is not None and "probabilities" in locals():
+
+    st.markdown(
+        "<br>",
+        unsafe_allow_html=True,
+    )
+
+    # --------------------------------------------------------
+    # TOP 3
+    # --------------------------------------------------------
+
+    st.markdown(
+        """
+        <div class="glass">
+
+            <h2>Prediction breakdown</h2>
+
+            <p style="color:rgba(255,255,255,0.7);">
+                GAIA's three strongest predictions for
+                this image.
+            </p>
+
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    top_indices = np.argsort(
+        probabilities
+    )[::-1][:3]
+
+    for rank, idx in enumerate(
+        top_indices,
+        start=1,
+    ):
+
+        name = DISPLAY_NAMES.get(
+            CLASS_NAMES[idx],
+            CLASS_NAMES[idx],
+        )
+
+        probability = (
+            probabilities[idx] * 100.0
+        )
+
+        c1, c2 = st.columns(
+            [3, 1]
+        )
+
+        with c1:
 
             st.markdown(
-                "<br>",
-                unsafe_allow_html=True
-            )
-
-
-            m1, m2 = st.columns(2)
-
-
-            with m1:
-
-                st.markdown(
-                    f"""
-                    <div class="glass">
-
-                        <div class="metric-label">
-                            Uncertainty
-                        </div>
-
-                        <div class="big-number"
-                             style="color:white;">
-                            {uncertainty:.1f}%
-                        </div>
-
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-
-
-            with m2:
-
-                st.markdown(
-                    f"""
-                    <div class="glass">
-
-                        <div class="metric-label">
-                            Severity
-                        </div>
-
-                        <div class="{severity_class}"
-                             style="font-size:28px;">
-                            {severity}
-                        </div>
-
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-
-
-    # ========================================================
-    # ANALYSIS RESULTS
-    # ========================================================
-
-    if analyze:
-
-        st.markdown(
-            "<br>",
-            unsafe_allow_html=True
-        )
-
-
-        # ----------------------------------------------------
-        # TOP PREDICTIONS
-        # ----------------------------------------------------
-
-        st.markdown(
-            """
-            <div class="glass">
-
-                <h2>Prediction breakdown</h2>
-
-                <p style="color:rgba(255,255,255,0.7);">
-                    GAIA's three strongest predictions for
-                    this image.
-                </p>
-
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-
-        top_indices = np.argsort(
-            probabilities
-        )[::-1][:3]
-
-
-        for rank, idx in enumerate(
-            top_indices,
-            1
-        ):
-
-            name = DISPLAY_NAMES.get(
-                CLASS_NAMES[idx],
-                CLASS_NAMES[idx]
-            )
-
-            probability = (
-                probabilities[idx]
-                * 100
-            )
-
-
-            c1, c2 = st.columns(
-                [3, 1]
-            )
-
-
-            with c1:
-
-                st.markdown(
-                    f"""
-                    <div style="
-                        color:white;
-                        font-weight:700;
-                        font-size:16px;
-                        padding-top:8px;
-                    ">
-                        {rank}. {name}
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-
-
-            with c2:
-
-                st.markdown(
-                    f"""
-                    <div style="
-                        color:#9bea79;
-                        font-weight:900;
-                        text-align:right;
-                        padding-top:8px;
-                    ">
-                        {probability:.2f}%
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-
-
-            st.progress(
-                float(
-                    probabilities[idx]
-                )
-            )
-
-
-        # ----------------------------------------------------
-        # RECOMMENDED ACTION
-        # ----------------------------------------------------
-
-        st.markdown(
-            "<br>",
-            unsafe_allow_html=True
-        )
-
-
-        st.markdown(
-            f"""
-            <div class="result">
-
-                <div class="result-label">
-                    WHAT TO DO
+                f"""
+                <div style="
+                    color:white;
+                    font-weight:700;
+                    font-size:16px;
+                    padding-top:8px;
+                ">
+                    {rank}. {name}
                 </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
-                <h2>
-                    {prediction_name}
-                </h2>
+        with c2:
 
-                <p>
-                    {info.get(
-                        "description",
-                        "GAIA detected a target condition."
-                    )}
-                </p>
+            st.markdown(
+                f"""
+                <div style="
+                    color:#9bea79;
+                    font-weight:900;
+                    text-align:right;
+                    padding-top:8px;
+                ">
+                    {probability:.2f}%
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
-                <hr>
+        st.progress(
+            float(
+                probabilities[idx]
+            )
+        )
 
-                <p>
-                    <b>Recommended action</b>
-                </p>
+    # --------------------------------------------------------
+    # DISEASE INFORMATION
+    # --------------------------------------------------------
 
-                <p>
-                    {info.get(
-                        "action",
-                        "Consult a qualified agricultural professional."
-                    )}
-                </p>
+    st.markdown(
+        "<br>",
+        unsafe_allow_html=True,
+    )
 
+    st.markdown(
+        f"""
+        <div class="result">
+
+            <div class="result-label">
+                AI-ASSISTED CROP GUIDANCE
             </div>
-            """,
-            unsafe_allow_html=True
+
+            <h2>
+                {prediction_name}
+            </h2>
+
+            <p>
+                {info.get(
+                    "description",
+                    "GAIA detected a target condition."
+                )}
+            </p>
+
+            <hr>
+
+            <p>
+                <b>Recommended action</b>
+            </p>
+
+            <p>
+                {info.get(
+                    "action",
+                    "Consult a qualified plant-health professional."
+                )}
+            </p>
+
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # --------------------------------------------------------
+    # HEALTHY
+    # --------------------------------------------------------
+
+    if predicted_class == "healthy":
+
+        st.success(
+            "🌱 GAIA did not detect one of the "
+            "target tomato diseases in this image."
+        )
+
+    # --------------------------------------------------------
+    # UNCERTAINTY WARNING
+    # --------------------------------------------------------
+
+    if is_uncertain:
+
+        st.warning(
+            "GAIA is uncertain about this image. "
+            "Try another photograph with better lighting, "
+            "better focus and a clearer view of the leaf."
+        )
+
+    # --------------------------------------------------------
+    # TECHNICAL DETAILS
+    # --------------------------------------------------------
+
+    with st.expander(
+        "⚙ Advanced AI analysis"
+    ):
+
+        st.write(
+            f"Model: `{MODEL_NAME}`"
+        )
+
+        st.write(
+            f"Input resolution: "
+            f"`{IMAGE_SIZE} × {IMAGE_SIZE}`"
+        )
+
+        st.write(
+            f"Device: `{DEVICE}`"
+        )
+
+        st.write(
+            f"Entropy: `{entropy:.4f}`"
+        )
+
+        st.write(
+            f"Normalized uncertainty: "
+            f"`{uncertainty:.2f}%`"
+        )
+
+        st.write(
+            f"Number of classes: "
+            f"`{NUM_CLASSES}`"
         )
 
 
-        # ----------------------------------------------------
-        # HEALTHY RESULT
-        # ----------------------------------------------------
-
-        if predicted_class == "healthy":
-
-            st.success(
-                "🌱 GAIA did not detect one of the "
-                "target tomato diseases in this image."
-            )
-
-
-        # ----------------------------------------------------
-        # UNCERTAINTY MESSAGE
-        # ----------------------------------------------------
-
-        if is_uncertain:
-
-            st.warning(
-                "GAIA is uncertain about this image. "
-                "Try another photograph with better lighting "
-                "and a clearer view of the leaf."
-            )
-
-
-        # ----------------------------------------------------
-        # TECHNICAL DETAILS
-        # ----------------------------------------------------
-
-        st.markdown(
-            "<br>",
-            unsafe_allow_html=True
-        )
-
-
-        with st.expander(
-            "⚙ Advanced AI analysis"
-        ):
-
-            st.write(
-                f"Model: `{MODEL_NAME}`"
-            )
-
-            st.write(
-                f"Input resolution: "
-                f"`{IMAGE_SIZE} × {IMAGE_SIZE}`"
-            )
-
-            st.write(
-                f"Device: `{DEVICE}`"
-            )
-
-            st.write(
-                f"Entropy: `{entropy:.4f}`"
-            )
-
-            st.write(
-                f"Normalized uncertainty: "
-                f"`{uncertainty:.2f}%`"
-            )
-
-            st.write(
-                f"Number of classes: "
-                f"`{NUM_CLASSES}`"
-            )
-
-
 # ============================================================
-# NO IMAGE STATE
+# EMPTY STATE
 # ============================================================
 
-else:
+if uploaded_file is None:
 
     st.markdown(
         """
@@ -1361,7 +1525,7 @@ else:
 
         </div>
         """,
-        unsafe_allow_html=True
+        unsafe_allow_html=True,
     )
 
 
@@ -1387,5 +1551,5 @@ st.markdown(
 
     </div>
     """,
-    unsafe_allow_html=True
+    unsafe_allow_html=True,
 )
