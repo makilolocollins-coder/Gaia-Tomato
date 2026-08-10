@@ -1,0 +1,23 @@
+{
+    "model": "vit_small_patch16_224",
+    "image_size": 224,
+    "num_classes": 11,
+    "classes": [
+        "Late_blight",
+        "healthy",
+        "Early_blight",
+        "Septoria_leaf_spot",
+        "Tomato_Yellow_Leaf_Curl_Virus",
+        "Bacterial_spot",
+        "Target_Spot",
+        "Tomato_mosaic_virus",
+        "Leaf_Mold",
+        "Spider_mites_Two_spotted_spider_mite",
+        "Powdery_Mildew"
+    ],
+    "test_accuracy": 0.989826197541331,
+    "best_validation_loss": 0.005235121774622119,
+    "best_validation_accuracy": 0.9879186095803306,
+    "dataset": "Tomato Disease Multiple Sources",
+    "seed": 42
+}
