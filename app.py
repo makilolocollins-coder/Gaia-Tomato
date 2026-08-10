@@ -1,5 +1,5 @@
-import json
 import base64
+import json
 from pathlib import Path
 
 import numpy as np
@@ -37,26 +37,39 @@ HF_REPO_ID = "Makky07/gaiatomato07"
 MODEL_FILENAME = "GAIA_TOMATO_VIT_BEST.pt"
 CONFIG_FILENAME = "GAIA_TOMATO_CONFIG.json"
 
-# Your CURRENT GitHub repository has the image at the ROOT.
-# This also supports assets/tomato_farmer_africa.jpg if you
-# move it there later.
 ROOT_DIR = Path(__file__).resolve().parent
 
-BACKGROUND_CANDIDATES = [
-    ROOT_DIR / "tomato_farmer_africa.jpg",
-    ROOT_DIR / "assets" / "tomato_farmer_africa.jpg",
-]
+BACKGROUND_PATH = ROOT_DIR / "tomato_farmer_africa.jpg"
 
 DEVICE = torch.device(
     "cuda" if torch.cuda.is_available() else "cpu"
 )
 
-DEFAULT_MODEL = "vit_small_patch16_224"
+
+# ============================================================
+# DEFAULT CONFIG
+# ============================================================
+
+DEFAULT_MODEL_NAME = "vit_small_patch16_224"
 DEFAULT_IMAGE_SIZE = 224
+
+DEFAULT_CLASSES = [
+    "Late_blight",
+    "healthy",
+    "Early_blight",
+    "Septoria_leaf_spot",
+    "Tomato_Yellow_Leaf_Curl_Virus",
+    "Bacterial_spot",
+    "Target_Spot",
+    "Tomato_mosaic_virus",
+    "Leaf_Mold",
+    "Spider_mites_Two_spotted_spider_mite",
+    "Powdery_Mildew",
+]
 
 
 # ============================================================
-# CLASS NAMES
+# DISPLAY NAMES
 # ============================================================
 
 DISPLAY_NAMES = {
@@ -176,50 +189,42 @@ DISEASE_INFO = {
 # BACKGROUND IMAGE
 # ============================================================
 
-def find_background():
+def get_background_uri():
 
-    for path in BACKGROUND_CANDIDATES:
-        if path.exists():
-            return path
-
-    return None
-
-
-def background_data_uri():
-
-    path = find_background()
-
-    if path is None:
+    if not BACKGROUND_PATH.exists():
         return None
 
     try:
         encoded = base64.b64encode(
-            path.read_bytes()
+            BACKGROUND_PATH.read_bytes()
         ).decode("utf-8")
 
-        return f"data:image/jpeg;base64,{encoded}"
+        return (
+            "data:image/jpeg;base64,"
+            + encoded
+        )
 
     except Exception:
         return None
 
 
-BACKGROUND_URI = background_data_uri()
+background_uri = get_background_uri()
 
 
 # ============================================================
 # PREMIUM UI
 # ============================================================
 
-if BACKGROUND_URI:
+if background_uri:
 
     background_css = f"""
     .stApp {{
         background-image:
             linear-gradient(
-                rgba(5, 18, 9, 0.86),
-                rgba(7, 25, 12, 0.76)
+                rgba(4, 18, 8, 0.86),
+                rgba(5, 24, 10, 0.78)
             ),
-            url("{BACKGROUND_URI}");
+            url("{background_uri}");
 
         background-size: cover;
         background-position: center;
@@ -270,12 +275,12 @@ st.markdown(
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 15px 5px 25px;
+        padding: 15px 5px 20px;
         color: white;
     }}
 
     .brand {{
-        font-size: 26px;
+        font-size: 27px;
         font-weight: 900;
     }}
 
@@ -290,26 +295,26 @@ st.markdown(
     }}
 
     .hero {{
-        padding: 45px 20px 55px;
         text-align: center;
+        padding: 45px 15px 45px;
         color: white;
     }}
 
     .hero-badge {{
         display: inline-block;
-        padding: 8px 15px;
+        padding: 8px 16px;
         border-radius: 30px;
-        background: rgba(142,226,107,0.15);
-        border: 1px solid rgba(142,226,107,0.35);
+        background: rgba(145,230,109,0.15);
+        border: 1px solid rgba(145,230,109,0.35);
         color: #a8ee89;
         font-size: 13px;
-        font-weight: 700;
+        font-weight: 800;
         margin-bottom: 20px;
     }}
 
     .hero h1 {{
-        font-size: clamp(42px, 7vw, 76px);
-        line-height: 0.98;
+        font-size: clamp(40px, 7vw, 76px);
+        line-height: 1;
         letter-spacing: -3px;
         margin: 0;
         font-weight: 900;
@@ -320,7 +325,7 @@ st.markdown(
     }}
 
     .hero p {{
-        max-width: 680px;
+        max-width: 700px;
         margin: 22px auto 0;
         font-size: 18px;
         line-height: 1.6;
@@ -330,11 +335,11 @@ st.markdown(
     .glass {{
         background: rgba(255,255,255,0.10);
         border: 1px solid rgba(255,255,255,0.17);
-        border-radius: 26px;
+        border-radius: 24px;
         padding: 28px;
         backdrop-filter: blur(18px);
         -webkit-backdrop-filter: blur(18px);
-        box-shadow: 0 25px 70px rgba(0,0,0,0.22);
+        box-shadow: 0 20px 60px rgba(0,0,0,0.22);
         color: white;
     }}
 
@@ -346,20 +351,19 @@ st.markdown(
     .upload-title {{
         font-size: 24px;
         font-weight: 800;
-        margin-bottom: 6px;
     }}
 
     .upload-subtitle {{
+        margin-top: 7px;
         color: rgba(255,255,255,0.70);
-        margin-bottom: 18px;
     }}
 
     .result {{
         background: rgba(255,255,255,0.97);
-        border-radius: 26px;
+        border-radius: 24px;
         padding: 30px;
-        color: #122016;
-        box-shadow: 0 25px 70px rgba(0,0,0,0.28);
+        color: #142519;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.28);
     }}
 
     .result-label {{
@@ -373,8 +377,7 @@ st.markdown(
     .result-name {{
         font-size: 36px;
         font-weight: 900;
-        color: #142519;
-        margin: 6px 0 15px;
+        margin: 7px 0 15px;
     }}
 
     .big-number {{
@@ -388,7 +391,7 @@ st.markdown(
         font-size: 12px;
         text-transform: uppercase;
         letter-spacing: 1px;
-        font-weight: 700;
+        font-weight: 800;
     }}
 
     .stable {{
@@ -428,8 +431,8 @@ st.markdown(
 
     [data-testid="stFileUploader"] {{
         background: rgba(255,255,255,0.07);
-        border: 2px dashed rgba(142,226,107,0.55);
-        border-radius: 20px;
+        border: 2px dashed rgba(145,230,109,0.55);
+        border-radius: 18px;
         padding: 10px;
     }}
 
@@ -440,7 +443,7 @@ st.markdown(
         background: #83d95f;
         color: #102411;
         font-weight: 900;
-        padding: 14px 20px;
+        padding: 14px;
         font-size: 16px;
     }}
 
@@ -455,10 +458,14 @@ st.markdown(
         font-size: 13px;
     }}
 
-    @media(max-width: 768px) {{
+    @media(max-width:768px) {{
+
+        .nav-right {{
+            display: none;
+        }}
 
         .hero {{
-            padding: 30px 10px 40px;
+            padding: 30px 5px 35px;
         }}
 
         .hero h1 {{
@@ -479,9 +486,6 @@ st.markdown(
             font-size: 29px;
         }}
 
-        .nav-right {{
-            display: none;
-        }}
     }}
 
     </style>
@@ -497,6 +501,7 @@ st.markdown(
 st.markdown(
     """
     <div class="nav">
+
         <div class="brand">
             GAIA<span>🍅</span>
         </div>
@@ -504,6 +509,7 @@ st.markdown(
         <div class="nav-right">
             TOMATO HEALTH INTELLIGENCE
         </div>
+
     </div>
     """,
     unsafe_allow_html=True,
@@ -546,13 +552,13 @@ st.markdown(
 @st.cache_data(show_spinner=False)
 def load_config():
 
-    config_path = hf_hub_download(
+    path = hf_hub_download(
         repo_id=HF_REPO_ID,
         filename=CONFIG_FILENAME,
     )
 
     with open(
-        config_path,
+        path,
         "r",
         encoding="utf-8",
     ) as file:
@@ -567,7 +573,7 @@ try:
 except Exception as error:
 
     st.error(
-        "GAIA could not load its model configuration."
+        "GAIA could not load the model configuration."
     )
 
     st.code(str(error))
@@ -577,7 +583,7 @@ except Exception as error:
 
 MODEL_NAME = CONFIG.get(
     "model",
-    DEFAULT_MODEL,
+    DEFAULT_MODEL_NAME,
 )
 
 IMAGE_SIZE = int(
@@ -589,19 +595,7 @@ IMAGE_SIZE = int(
 
 CLASS_NAMES = CONFIG.get(
     "classes",
-    [
-        "Late_blight",
-        "healthy",
-        "Early_blight",
-        "Septoria_leaf_spot",
-        "Tomato_Yellow_Leaf_Curl_Virus",
-        "Bacterial_spot",
-        "Target_Spot",
-        "Tomato_mosaic_virus",
-        "Leaf_Mold",
-        "Spider_mites_Two_spotted_spider_mite",
-        "Powdery_Mildew",
-    ],
+    DEFAULT_CLASSES,
 )
 
 NUM_CLASSES = int(
@@ -615,15 +609,15 @@ NUM_CLASSES = int(
 if len(CLASS_NAMES) != NUM_CLASSES:
 
     st.error(
-        "The number of classes in the model configuration "
-        "does not match the class list."
+        "Model configuration error: "
+        "class count does not match num_classes."
     )
 
     st.stop()
 
 
 # ============================================================
-# MODEL ARCHITECTURE
+# MODEL
 # ============================================================
 
 class GaiaTomatoModel(nn.Module):
@@ -682,10 +676,10 @@ class GaiaTomatoModel(nn.Module):
 
 
 # ============================================================
-# ROBUST CHECKPOINT LOADER
+# CHECKPOINT PROCESSING
 # ============================================================
 
-def extract_state_dict(checkpoint):
+def get_state_dict(checkpoint):
 
     if isinstance(checkpoint, nn.Module):
 
@@ -697,20 +691,19 @@ def extract_state_dict(checkpoint):
             "Unsupported checkpoint format."
         )
 
-    for key in [
+    for key in (
         "state_dict",
         "model_state_dict",
         "model",
         "net",
-    ]:
+    ):
 
-        candidate = checkpoint.get(key)
+        value = checkpoint.get(key)
 
-        if isinstance(candidate, dict):
+        if isinstance(value, dict):
 
-            return candidate
+            return value
 
-    # Direct state dictionary
     return checkpoint
 
 
@@ -720,29 +713,22 @@ def clean_state_dict(state_dict):
 
     for key, value in state_dict.items():
 
+        if not torch.is_tensor(value):
+            continue
+
         new_key = key
 
-        prefixes = [
+        for prefix in (
             "module.",
             "model.",
             "net.",
-        ]
+        ):
 
-        changed = True
+            if new_key.startswith(prefix):
 
-        while changed:
-
-            changed = False
-
-            for prefix in prefixes:
-
-                if new_key.startswith(prefix):
-
-                    new_key = new_key[
-                        len(prefix):
-                    ]
-
-                    changed = True
+                new_key = new_key[
+                    len(prefix):
+                ]
 
         cleaned[new_key] = value
 
@@ -750,7 +736,7 @@ def clean_state_dict(state_dict):
 
 
 # ============================================================
-# LOAD MODEL
+# LOAD MODEL ONLY WHEN REQUIRED
 # ============================================================
 
 @st.cache_resource(
@@ -774,7 +760,7 @@ def load_model():
         weights_only=False,
     )
 
-    state_dict = extract_state_dict(
+    state_dict = get_state_dict(
         checkpoint
     )
 
@@ -782,70 +768,12 @@ def load_model():
         state_dict
     )
 
-    model_state = model.state_dict()
+    if not state_dict:
 
-    # Check compatibility before loading.
-    missing = [
-        key
-        for key in model_state
-        if key not in state_dict
-    ]
-
-    unexpected = [
-        key
-        for key in state_dict
-        if key not in model_state
-    ]
-
-    shape_errors = []
-
-    for key in model_state:
-
-        if key in state_dict:
-
-            if (
-                tuple(
-                    model_state[key].shape
-                )
-                !=
-                tuple(
-                    state_dict[key].shape
-                )
-            ):
-
-                shape_errors.append(
-                    (
-                        key,
-                        tuple(
-                            model_state[key].shape
-                        ),
-                        tuple(
-                            state_dict[key].shape
-                        ),
-                    )
-                )
-
-    if missing or shape_errors:
-
-        message = (
-            "The Hugging Face checkpoint does not "
-            "match the GAIA model architecture.\n\n"
+        raise RuntimeError(
+            "No tensor weights were found "
+            "inside the checkpoint."
         )
-
-        if missing:
-
-            message += (
-                f"Missing keys: {missing[:10]}\n"
-            )
-
-        if shape_errors:
-
-            message += (
-                f"Shape mismatches: "
-                f"{shape_errors[:5]}\n"
-            )
-
-        raise RuntimeError(message)
 
     model.load_state_dict(
         state_dict,
@@ -865,21 +793,18 @@ def load_model():
 transform = transforms.Compose([
 
     transforms.Resize(
-        (
-            IMAGE_SIZE,
-            IMAGE_SIZE,
-        )
+        (IMAGE_SIZE, IMAGE_SIZE)
     ),
 
     transforms.ToTensor(),
 
     transforms.Normalize(
-        [
+        mean=[
             0.485,
             0.456,
             0.406,
         ],
-        [
+        std=[
             0.229,
             0.224,
             0.225,
@@ -954,35 +879,29 @@ def calculate_uncertainty(
         1.0,
     )
 
-    entropy = float(
-        -np.sum(
-            probabilities
-            * np.log(
-                probabilities
-            )
-        )
+    entropy = -np.sum(
+        probabilities
+        * np.log(probabilities)
     )
 
-    max_entropy = float(
-        np.log(
-            len(probabilities)
-        )
+    maximum_entropy = np.log(
+        len(probabilities)
     )
 
     normalized = (
-        entropy / max_entropy
-        if max_entropy > 0
+        entropy / maximum_entropy
+        if maximum_entropy > 0
         else 0.0
     )
 
     return (
-        entropy,
-        normalized * 100.0,
+        float(entropy),
+        float(normalized * 100.0),
     )
 
 
 # ============================================================
-# UPLOAD SECTION
+# UPLOAD
 # ============================================================
 
 st.markdown(
@@ -995,8 +914,7 @@ st.markdown(
 
         <div class="upload-subtitle">
             Upload a clear photograph of a tomato leaf.
-            For best results, use good lighting and keep
-            the leaf clearly visible.
+            Good lighting and a focused leaf give better results.
         </div>
 
     </div>
@@ -1017,38 +935,56 @@ uploaded_file = st.file_uploader(
 
 
 # ============================================================
-# LOAD MODEL ONLY WHEN NEEDED
+# IMAGE PROCESSING
 # ============================================================
 
 if uploaded_file is not None:
 
-    image = Image.open(
-        uploaded_file
-    ).convert("RGB")
+    try:
+
+        image = Image.open(
+            uploaded_file
+        ).convert("RGB")
+
+    except Exception:
+
+        st.error(
+            "The uploaded file is not a valid image."
+        )
+
+        st.stop()
+
 
     st.markdown(
         "<br>",
         unsafe_allow_html=True,
     )
 
+
     image_col, result_col = st.columns(
         [0.95, 1.05],
         gap="large",
     )
 
-    # --------------------------------------------------------
-    # IMAGE
-    # --------------------------------------------------------
+
+    # ========================================================
+    # IMAGE PANEL
+    # ========================================================
 
     with image_col:
 
         st.markdown(
             """
             <div class="glass">
+
                 <h3>Uploaded leaf</h3>
-                <p style="color:rgba(255,255,255,0.7);">
-                    Review the image before analysis.
+
+                <p style="
+                    color:rgba(255,255,255,0.70);
+                ">
+                    Review your image before analysis.
                 </p>
+
             </div>
             """,
             unsafe_allow_html=True,
@@ -1069,13 +1005,133 @@ if uploaded_file is not None:
             use_container_width=True,
         )
 
-    # --------------------------------------------------------
-    # RESULT
-    # --------------------------------------------------------
+
+    # ========================================================
+    # RUN ANALYSIS
+    # ========================================================
+
+    if analyze:
+
+        try:
+
+            with st.spinner(
+                "GAIA is loading its AI model..."
+            ):
+
+                model = load_model()
+
+
+            with st.spinner(
+                "GAIA is analyzing the tomato leaf..."
+            ):
+
+                (
+                    index,
+                    confidence,
+                    probabilities,
+                ) = predict(
+                    model,
+                    image,
+                )
+
+
+            predicted_class = CLASS_NAMES[
+                index
+            ]
+
+            prediction_name = DISPLAY_NAMES.get(
+                predicted_class,
+                predicted_class,
+            )
+
+            entropy, uncertainty = (
+                calculate_uncertainty(
+                    probabilities
+                )
+            )
+
+            confidence_pct = (
+                confidence * 100.0
+            )
+
+
+            # Conservative screening rule
+            is_uncertain = (
+                confidence_pct < 60.0
+                or uncertainty > 60.0
+            )
+
+
+            info = DISEASE_INFO.get(
+                predicted_class,
+                {},
+            )
+
+            severity = info.get(
+                "severity",
+                "Unknown",
+            )
+
+
+            # Save result across Streamlit reruns
+            st.session_state["prediction"] = {
+                "predicted_class":
+                    predicted_class,
+
+                "prediction_name":
+                    prediction_name,
+
+                "confidence":
+                    confidence_pct,
+
+                "probabilities":
+                    probabilities,
+
+                "entropy":
+                    entropy,
+
+                "uncertainty":
+                    uncertainty,
+
+                "severity":
+                    severity,
+
+                "info":
+                    info,
+
+                "model":
+                    MODEL_NAME,
+
+                "image_size":
+                    IMAGE_SIZE,
+            }
+
+
+        except Exception as error:
+
+            st.error(
+                "GAIA could not complete the analysis."
+            )
+
+            st.code(
+                str(error)
+            )
+
+            st.stop()
+
+
+    # ========================================================
+    # SHOW SAVED RESULT
+    # ========================================================
+
+    result = st.session_state.get(
+        "prediction"
+    )
+
 
     with result_col:
 
-        if not analyze:
+        if result is None:
 
             st.markdown(
                 """
@@ -1090,7 +1146,8 @@ if uploaded_file is not None:
                     </div>
 
                     <p>
-                        Click <b>Analyze with GAIA</b>
+                        Click
+                        <b>Analyze with GAIA</b>
                         to run the trained Vision Transformer.
                     </p>
 
@@ -1101,115 +1158,108 @@ if uploaded_file is not None:
 
         else:
 
-            try:
+            confidence_pct = result[
+                "confidence"
+            ]
 
-                with st.spinner(
-                    "GAIA is analyzing the leaf..."
-                ):
+            uncertainty = result[
+                "uncertainty"
+            ]
 
-                    model = load_model()
+            severity = result[
+                "severity"
+            ]
 
-                    (
-                        index,
-                        confidence,
-                        probabilities,
-                    ) = predict(
-                        model,
-                        image,
-                    )
+            prediction_name = result[
+                "prediction_name"
+            ]
 
-                predicted_class = CLASS_NAMES[
-                    index
-                ]
+            if (
+                confidence_pct < 60
+                or uncertainty > 60
+            ):
 
-                prediction_name = DISPLAY_NAMES.get(
-                    predicted_class,
-                    predicted_class,
+                status_html = (
+                    '<span class="uncertain">'
+                    '⚠ REVIEW IMAGE'
+                    '</span>'
                 )
 
-                entropy, uncertainty = (
-                    calculate_uncertainty(
-                        probabilities
-                    )
+            else:
+
+                status_html = (
+                    '<span class="stable">'
+                    '✓ PREDICTION STABLE'
+                    '</span>'
                 )
 
-                confidence_pct = (
-                    confidence * 100.0
+
+            st.markdown(
+                f"""
+                <div class="result">
+
+                    <div class="result-label">
+                        GAIA DETECTION
+                    </div>
+
+                    <div class="result-name">
+                        {prediction_name}
+                    </div>
+
+                    {status_html}
+
+                    <br><br>
+
+                    <div class="result-label">
+                        CONFIDENCE
+                    </div>
+
+                    <div class="big-number">
+                        {confidence_pct:.2f}%
+                    </div>
+
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+
+            st.progress(
+                min(
+                    max(
+                        confidence_pct / 100.0,
+                        0.0,
+                    ),
+                    1.0,
                 )
+            )
 
-                # Conservative screening rule.
-                is_uncertain = (
-                    confidence_pct < 60.0
-                    or
-                    uncertainty > 60.0
-                )
 
-                info = DISEASE_INFO.get(
-                    predicted_class,
-                    {},
-                )
+            st.markdown(
+                "<br>",
+                unsafe_allow_html=True,
+            )
 
-                severity = info.get(
-                    "severity",
-                    "Unknown",
-                )
 
-                if severity == "High":
+            m1, m2 = st.columns(2)
 
-                    severity_class = (
-                        "severity-high"
-                    )
 
-                elif severity == "Moderate":
-
-                    severity_class = (
-                        "severity-moderate"
-                    )
-
-                else:
-
-                    severity_class = (
-                        "severity-low"
-                    )
-
-                if is_uncertain:
-
-                    status_html = (
-                        '<span class="uncertain">'
-                        '⚠ REVIEW IMAGE'
-                        '</span>'
-                    )
-
-                else:
-
-                    status_html = (
-                        '<span class="stable">'
-                        '✓ PREDICTION STABLE'
-                        '</span>'
-                    )
+            with m1:
 
                 st.markdown(
                     f"""
-                    <div class="result">
+                    <div class="glass">
 
-                        <div class="result-label">
-                            GAIA DETECTION
+                        <div class="metric-label">
+                            Uncertainty
                         </div>
 
-                        <div class="result-name">
-                            {prediction_name}
-                        </div>
-
-                        {status_html}
-
-                        <br><br>
-
-                        <div class="result-label">
-                            CONFIDENCE
-                        </div>
-
-                        <div class="big-number">
-                            {confidence_pct:.2f}%
+                        <div style="
+                            font-size:32px;
+                            font-weight:900;
+                            color:white;
+                        ">
+                            {uncertainty:.1f}%
                         </div>
 
                     </div>
@@ -1217,293 +1267,290 @@ if uploaded_file is not None:
                     unsafe_allow_html=True,
                 )
 
-                st.progress(
-                    max(
-                        0.0,
-                        min(
-                            confidence,
-                            1.0,
-                        ),
-                    )
+
+            with m2:
+
+                severity_class = (
+                    "severity-high"
+                    if severity == "High"
+                    else
+                    "severity-moderate"
+                    if severity == "Moderate"
+                    else
+                    "severity-low"
                 )
 
                 st.markdown(
-                    "<br>",
+                    f"""
+                    <div class="glass">
+
+                        <div class="metric-label">
+                            Severity
+                        </div>
+
+                        <div class="{severity_class}"
+                             style="font-size:28px;">
+                            {severity}
+                        </div>
+
+                    </div>
+                    """,
                     unsafe_allow_html=True,
                 )
 
-                m1, m2 = st.columns(2)
 
-                with m1:
+    # ========================================================
+    # DETAILED RESULTS
+    # ========================================================
 
-                    st.markdown(
-                        f"""
-                        <div class="glass">
-
-                            <div class="metric-label">
-                                Uncertainty
-                            </div>
-
-                            <div style="
-                                font-size:34px;
-                                font-weight:900;
-                                color:white;
-                            ">
-                                {uncertainty:.1f}%
-                            </div>
-
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-
-                with m2:
-
-                    st.markdown(
-                        f"""
-                        <div class="glass">
-
-                            <div class="metric-label">
-                                Severity
-                            </div>
-
-                            <div class="{severity_class}"
-                                 style="font-size:28px;">
-                                {severity}
-                            </div>
-
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-
-            except Exception as error:
-
-                st.error(
-                    "GAIA could not complete the analysis."
-                )
-
-                st.code(
-                    str(error)
-                )
-
-                st.info(
-                    "If this is a model-loading error, "
-                    "the Hugging Face checkpoint and the "
-                    "model architecture need to be checked."
-                )
-
-                st.stop()
-
-
-# ============================================================
-# RESULTS BELOW IMAGE
-# ============================================================
-
-if uploaded_file is not None and "probabilities" in locals():
-
-    st.markdown(
-        "<br>",
-        unsafe_allow_html=True,
+    result = st.session_state.get(
+        "prediction"
     )
 
-    # --------------------------------------------------------
-    # TOP 3
-    # --------------------------------------------------------
 
-    st.markdown(
-        """
-        <div class="glass">
+    if result is not None:
 
-            <h2>Prediction breakdown</h2>
+        probabilities = result[
+            "probabilities"
+        ]
 
-            <p style="color:rgba(255,255,255,0.7);">
-                GAIA's three strongest predictions for
-                this image.
-            </p>
+        predicted_class = result[
+            "predicted_class"
+        ]
 
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+        prediction_name = result[
+            "prediction_name"
+        ]
 
-    top_indices = np.argsort(
-        probabilities
-    )[::-1][:3]
+        info = result[
+            "info"
+        ]
 
-    for rank, idx in enumerate(
-        top_indices,
-        start=1,
-    ):
+        uncertainty = result[
+            "uncertainty"
+        ]
 
-        name = DISPLAY_NAMES.get(
-            CLASS_NAMES[idx],
-            CLASS_NAMES[idx],
+        entropy = result[
+            "entropy"
+        ]
+
+
+        st.markdown(
+            "<br>",
+            unsafe_allow_html=True,
         )
 
-        probability = (
-            probabilities[idx] * 100.0
-        )
 
-        c1, c2 = st.columns(
-            [3, 1]
-        )
+        # ====================================================
+        # TOP 3
+        # ====================================================
 
-        with c1:
+        st.markdown(
+            """
+            <div class="glass">
 
-            st.markdown(
-                f"""
-                <div style="
-                    color:white;
-                    font-weight:700;
-                    font-size:16px;
-                    padding-top:8px;
+                <h2>
+                    Prediction breakdown
+                </h2>
+
+                <p style="
+                    color:rgba(255,255,255,0.70);
                 ">
-                    {rank}. {name}
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+                    GAIA's three strongest predictions.
+                </p>
 
-        with c2:
-
-            st.markdown(
-                f"""
-                <div style="
-                    color:#9bea79;
-                    font-weight:900;
-                    text-align:right;
-                    padding-top:8px;
-                ">
-                    {probability:.2f}%
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-        st.progress(
-            float(
-                probabilities[idx]
-            )
-        )
-
-    # --------------------------------------------------------
-    # DISEASE INFORMATION
-    # --------------------------------------------------------
-
-    st.markdown(
-        "<br>",
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        f"""
-        <div class="result">
-
-            <div class="result-label">
-                AI-ASSISTED CROP GUIDANCE
             </div>
-
-            <h2>
-                {prediction_name}
-            </h2>
-
-            <p>
-                {info.get(
-                    "description",
-                    "GAIA detected a target condition."
-                )}
-            </p>
-
-            <hr>
-
-            <p>
-                <b>Recommended action</b>
-            </p>
-
-            <p>
-                {info.get(
-                    "action",
-                    "Consult a qualified plant-health professional."
-                )}
-            </p>
-
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    # --------------------------------------------------------
-    # HEALTHY
-    # --------------------------------------------------------
-
-    if predicted_class == "healthy":
-
-        st.success(
-            "🌱 GAIA did not detect one of the "
-            "target tomato diseases in this image."
-        )
-
-    # --------------------------------------------------------
-    # UNCERTAINTY WARNING
-    # --------------------------------------------------------
-
-    if is_uncertain:
-
-        st.warning(
-            "GAIA is uncertain about this image. "
-            "Try another photograph with better lighting, "
-            "better focus and a clearer view of the leaf."
-        )
-
-    # --------------------------------------------------------
-    # TECHNICAL DETAILS
-    # --------------------------------------------------------
-
-    with st.expander(
-        "⚙ Advanced AI analysis"
-    ):
-
-        st.write(
-            f"Model: `{MODEL_NAME}`"
-        )
-
-        st.write(
-            f"Input resolution: "
-            f"`{IMAGE_SIZE} × {IMAGE_SIZE}`"
-        )
-
-        st.write(
-            f"Device: `{DEVICE}`"
-        )
-
-        st.write(
-            f"Entropy: `{entropy:.4f}`"
-        )
-
-        st.write(
-            f"Normalized uncertainty: "
-            f"`{uncertainty:.2f}%`"
-        )
-
-        st.write(
-            f"Number of classes: "
-            f"`{NUM_CLASSES}`"
+            """,
+            unsafe_allow_html=True,
         )
 
 
-# ============================================================
-# EMPTY STATE
-# ============================================================
+        top_indices = np.argsort(
+            probabilities
+        )[::-1][:3]
 
-if uploaded_file is None:
+
+        for rank, idx in enumerate(
+            top_indices,
+            start=1,
+        ):
+
+            name = DISPLAY_NAMES.get(
+                CLASS_NAMES[idx],
+                CLASS_NAMES[idx],
+            )
+
+            probability = (
+                probabilities[idx] * 100.0
+            )
+
+
+            c1, c2 = st.columns(
+                [3, 1]
+            )
+
+
+            with c1:
+
+                st.markdown(
+                    f"""
+                    <div style="
+                        color:white;
+                        font-weight:700;
+                        font-size:16px;
+                        padding-top:8px;
+                    ">
+                        {rank}. {name}
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+
+            with c2:
+
+                st.markdown(
+                    f"""
+                    <div style="
+                        color:#9bea79;
+                        font-weight:900;
+                        text-align:right;
+                        padding-top:8px;
+                    ">
+                        {probability:.2f}%
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+
+            st.progress(
+                float(
+                    probabilities[idx]
+                )
+            )
+
+
+        # ====================================================
+        # GUIDANCE
+        # ====================================================
+
+        st.markdown(
+            "<br>",
+            unsafe_allow_html=True,
+        )
+
+
+        st.markdown(
+            f"""
+            <div class="result">
+
+                <div class="result-label">
+                    AI-ASSISTED CROP GUIDANCE
+                </div>
+
+                <h2>
+                    {prediction_name}
+                </h2>
+
+                <p>
+                    {info.get(
+                        "description",
+                        "GAIA detected a target condition."
+                    )}
+                </p>
+
+                <hr>
+
+                <p>
+                    <b>Recommended action</b>
+                </p>
+
+                <p>
+                    {info.get(
+                        "action",
+                        "Consult a qualified plant-health professional."
+                    )}
+                </p>
+
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+        if predicted_class == "healthy":
+
+            st.success(
+                "🌱 GAIA did not detect one of its "
+                "target tomato diseases in this image."
+            )
+
+
+        if (
+            result["confidence"] < 60
+            or uncertainty > 60
+        ):
+
+            st.warning(
+                "GAIA is uncertain about this image. "
+                "Try a clearer, well-lit photograph with "
+                "the leaf filling most of the frame."
+            )
+
+
+        # ====================================================
+        # TECHNICAL DETAILS
+        # ====================================================
+
+        with st.expander(
+            "⚙ Advanced AI analysis"
+        ):
+
+            st.write(
+                f"Model: `{result['model']}`"
+            )
+
+            st.write(
+                f"Input resolution: "
+                f"`{result['image_size']} × "
+                f"{result['image_size']}`"
+            )
+
+            st.write(
+                f"Device: `{DEVICE}`"
+            )
+
+            st.write(
+                f"Entropy: `{entropy:.4f}`"
+            )
+
+            st.write(
+                f"Normalized uncertainty: "
+                f"`{uncertainty:.2f}%`"
+            )
+
+            st.write(
+                f"Number of classes: "
+                f"`{NUM_CLASSES}`"
+            )
+
+
+else:
+
+    # ========================================================
+    # EMPTY STATE
+    # ========================================================
 
     st.markdown(
         """
         <br><br>
 
         <div class="glass"
-             style="text-align:center; padding:55px 25px;">
+             style="
+                text-align:center;
+                padding:55px 25px;
+             ">
 
             <div style="font-size:52px;">
                 🍃
@@ -1543,7 +1590,7 @@ st.markdown(
 
         AI-assisted tomato crop health screening.
 
-        <br>
+        <br><br>
 
         Results are intended to support agricultural
         decision-making and should not replace assessment
