@@ -1,9 +1,7 @@
 import json
-import base64
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from textwrap import dedent
 
 import numpy as np
 from PIL import Image
@@ -14,6 +12,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.transforms as transforms
+
 import timm
 
 from huggingface_hub import hf_hub_download
@@ -22,7 +21,7 @@ from supabase import create_client
 
 # ============================================================
 # GAIA TOMATO AI
-# Production Streamlit application
+# Clean production Streamlit app
 # ============================================================
 
 st.set_page_config(
@@ -34,63 +33,65 @@ st.set_page_config(
 
 
 # ============================================================
-# HTML HELPER
-# ============================================================
-
-def render_html(html: str):
-    """
-    Safely render multiline HTML without Python indentation
-    turning it into a Markdown code block.
-    """
-    st.markdown(
-        dedent(html).strip(),
-        unsafe_allow_html=True,
-    )
-
-
-# ============================================================
-# CONFIGURATION
+# CONFIG
 # ============================================================
 
 HF_REPO_ID = "Makky07/gaiatomato07"
 
 MODEL_FILENAME = "GAIA_TOMATO_VIT_BEST.pt"
-
 CONFIG_FILENAME = "GAIA_TOMATO_CONFIG.json"
-
-ROOT_DIR = Path(__file__).resolve().parent
-
-BACKGROUND_FILES = [
-    ROOT_DIR / "tomato_farmer_africa.jpg",
-    ROOT_DIR / "assets" / "tomato_farmer_africa.jpg",
-]
-
-DEVICE = torch.device(
-    "cuda"
-    if torch.cuda.is_available()
-    else "cpu"
-)
-
-
-# ============================================================
-# SUPABASE CONFIGURATION
-# ============================================================
-
-SUPABASE_URL = None
-SUPABASE_KEY = None
-
-try:
-    SUPABASE_URL = st.secrets["SUPABASE_URL"]
-    SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
-except Exception:
-    pass
-
 
 SUPABASE_BUCKET = "gaia-images"
 
 # IMPORTANT:
-# This is the exact table name you created in Supabase.
+# This is the EXACT table name you created in Supabase.
 SUPABASE_TABLE = "GAIA Diagnosis Database"
+
+ROOT_DIR = Path(__file__).resolve().parent
+
+DEVICE = torch.device(
+    "cuda" if torch.cuda.is_available() else "cpu"
+)
+
+
+# ============================================================
+# SUPABASE SECRETS
+# ============================================================
+
+def get_secret(name):
+    """
+    Safely read a Streamlit secret.
+
+    Put these in:
+    Streamlit Cloud
+    -> App
+    -> Settings
+    -> Secrets
+
+    Example:
+
+    SUPABASE_URL = "https://pelxleyfheicfccmprjm.supabase.co"
+    SUPABASE_KEY = "your_publishable_key"
+    """
+
+    try:
+        value = st.secrets.get(name)
+    except Exception:
+        value = None
+
+    if value is None:
+        return None
+
+    value = str(value).strip()
+
+    if not value:
+        return None
+
+    return value
+
+
+SUPABASE_URL = get_secret("SUPABASE_URL")
+SUPABASE_KEY = get_secret("SUPABASE_KEY")
 
 
 # ============================================================
@@ -117,7 +118,7 @@ def get_supabase_client():
 
 
 # ============================================================
-# DEFAULT CLASSES
+# MODEL CLASSES
 # ============================================================
 
 DEFAULT_CLASSES = [
@@ -134,10 +135,6 @@ DEFAULT_CLASSES = [
     "Powdery_Mildew",
 ]
 
-
-# ============================================================
-# DISPLAY NAMES
-# ============================================================
 
 DISPLAY_NAMES = {
 
@@ -176,17 +173,13 @@ DISPLAY_NAMES = {
 }
 
 
-# ============================================================
-# DIAGNOSTIC KNOWLEDGE BASE
-# ============================================================
-
 DISEASE_INFO = {
 
     "Late_blight": {
         "description":
             "A destructive disease that can rapidly damage tomato leaves, stems and fruit.",
         "action":
-            "Remove severely affected material, improve airflow and avoid prolonged leaf wetness. Follow locally approved disease-management practices.",
+            "Remove severely affected material, improve airflow and avoid prolonged leaf wetness.",
         "severity":
             "High",
     },
@@ -284,322 +277,24 @@ DISEASE_INFO = {
 
 
 # ============================================================
-# BACKGROUND
+# SIMPLE UI
 # ============================================================
 
-def get_background_uri():
+st.title("🍅 GAIA Tomato AI")
 
-    for path in BACKGROUND_FILES:
-
-        if path.exists():
-
-            try:
-
-                encoded = base64.b64encode(
-                    path.read_bytes()
-                ).decode("utf-8")
-
-                return (
-                    "data:image/jpeg;base64,"
-                    + encoded
-                )
-
-            except Exception:
-                pass
-
-    return None
-
-
-background_uri = get_background_uri()
-
-
-if background_uri:
-
-    background_css = f"""
-    .stApp {{
-        background-image:
-            linear-gradient(
-                rgba(3,18,8,.86),
-                rgba(5,25,10,.80)
-            ),
-            url("{background_uri}");
-
-        background-size: cover;
-        background-position: center;
-        background-attachment: fixed;
-    }}
-    """
-
-else:
-
-    background_css = """
-    .stApp {
-        background:
-            linear-gradient(
-                135deg,
-                #06140a,
-                #123b1d,
-                #071b0c
-            );
-    }
-    """
-
-
-# ============================================================
-# UI STYLE
-# ============================================================
-
-st.markdown(
-    f"""
-    <style>
-
-    {background_css}
-
-    #MainMenu,
-    footer {{
-        visibility: hidden;
-    }}
-
-    header {{
-        background: transparent !important;
-    }}
-
-    .block-container {{
-        max-width: 1180px;
-        padding-top: 1rem;
-        padding-bottom: 4rem;
-    }}
-
-    .nav {{
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 15px 5px 20px;
-        color: white;
-    }}
-
-    .brand {{
-        font-size: 28px;
-        font-weight: 900;
-        color: white;
-    }}
-
-    .brand span {{
-        color: #91e66d;
-    }}
-
-    .nav-right {{
-        color: rgba(255,255,255,.70);
-        font-size: 12px;
-        letter-spacing: 1.5px;
-        font-weight: 700;
-    }}
-
-    .hero {{
-        text-align: center;
-        color: white;
-        padding: 50px 15px 55px;
-    }}
-
-    .badge {{
-        display: inline-block;
-        padding: 8px 16px;
-        border-radius: 30px;
-        background: rgba(145,230,109,.15);
-        border: 1px solid rgba(145,230,109,.35);
-        color: #a8ee89;
-        font-size: 13px;
-        font-weight: 800;
-        margin-bottom: 20px;
-    }}
-
-    .hero h1 {{
-        font-size: clamp(42px,7vw,75px);
-        line-height: .98;
-        letter-spacing: -3px;
-        margin: 0;
-        font-weight: 900;
-        color: white;
-    }}
-
-    .hero h1 span {{
-        color: #91e66d;
-    }}
-
-    .hero p {{
-        max-width: 700px;
-        margin: 24px auto 0;
-        font-size: 18px;
-        line-height: 1.6;
-        color: rgba(255,255,255,.82);
-    }}
-
-    .glass {{
-        background: rgba(255,255,255,.10);
-        border: 1px solid rgba(255,255,255,.17);
-        border-radius: 25px;
-        padding: 28px;
-        backdrop-filter: blur(18px);
-        -webkit-backdrop-filter: blur(18px);
-        box-shadow: 0 25px 70px rgba(0,0,0,.22);
-        color: white;
-    }}
-
-    .glass h2,
-    .glass h3 {{
-        color: white;
-    }}
-
-    .result {{
-        background: rgba(255,255,255,.97);
-        border-radius: 25px;
-        padding: 30px;
-        color: #142519;
-        box-shadow: 0 25px 70px rgba(0,0,0,.28);
-    }}
-
-    .label {{
-        color: #65806c;
-        font-size: 12px;
-        font-weight: 800;
-        text-transform: uppercase;
-        letter-spacing: 1.5px;
-    }}
-
-    .diagnosis {{
-        color: #142519;
-        font-size: 35px;
-        font-weight: 900;
-        margin: 6px 0 15px;
-    }}
-
-    .confidence {{
-        color: #18351d;
-        font-size: 40px;
-        font-weight: 900;
-    }}
-
-    .warning-box {{
-        background: #fff3d6;
-        border-left: 5px solid #d89b19;
-        padding: 18px;
-        border-radius: 12px;
-        color: #654600;
-        margin-top: 18px;
-    }}
-
-    .success-box {{
-        background: #e7f8e2;
-        border-left: 5px solid #4b9b3f;
-        padding: 18px;
-        border-radius: 12px;
-        color: #245d20;
-        margin-top: 18px;
-    }}
-
-    [data-testid="stFileUploader"] {{
-        background: rgba(255,255,255,.07);
-        border: 2px dashed rgba(142,226,107,.55);
-        border-radius: 20px;
-        padding: 10px;
-    }}
-
-    .stButton>button {{
-        width: 100%;
-        border-radius: 14px;
-        border: none;
-        background: #83d95f;
-        color: #102411;
-        font-weight: 900;
-        padding: 14px 20px;
-        font-size: 16px;
-    }}
-
-    .stButton>button:hover {{
-        background: #a0ed7e;
-    }}
-
-    .footer {{
-        text-align: center;
-        color: rgba(255,255,255,.60);
-        padding: 45px 10px 15px;
-        font-size: 13px;
-    }}
-
-    @media(max-width:768px) {{
-
-        .nav-right {{
-            display: none;
-        }}
-
-        .hero {{
-            padding: 35px 10px 45px;
-        }}
-
-        .hero h1 {{
-            letter-spacing: -2px;
-        }}
-
-        .result,
-        .glass {{
-            padding: 21px;
-        }}
-
-        .diagnosis {{
-            font-size: 28px;
-        }}
-
-    }}
-
-    </style>
-    """,
-    unsafe_allow_html=True,
+st.caption(
+    "AI-powered tomato crop health screening"
 )
 
+st.divider()
 
-# ============================================================
-# HEADER
-# ============================================================
+st.subheader("Know your crop. Grow with confidence.")
 
-render_html("""
-<div class="nav">
-
-    <div class="brand">
-        GAIA<span>🍅</span>
-    </div>
-
-    <div class="nav-right">
-        TOMATO HEALTH INTELLIGENCE
-    </div>
-
-</div>
-""")
-
-
-# ============================================================
-# HERO
-# ============================================================
-
-render_html("""
-<div class="hero">
-
-    <div class="badge">
-        ✦ AI-POWERED CROP HEALTH
-    </div>
-
-    <h1>
-        Know your crop.<br>
-        <span>Grow with confidence.</span>
-    </h1>
-
-    <p>
-        Upload a tomato leaf image and GAIA will
-        screen it for 11 tomato health and disease
-        conditions using a Vision Transformer.
-    </p>
-
-</div>
-""")
+st.write(
+    "Upload a tomato leaf image and GAIA will "
+    "screen it for 11 tomato health and disease "
+    "conditions using a Vision Transformer."
+)
 
 
 # ============================================================
@@ -633,7 +328,7 @@ except Exception as error:
         "GAIA could not load the model configuration."
     )
 
-    st.code(str(error))
+    st.exception(error)
 
     st.stop()
 
@@ -693,7 +388,9 @@ class GaiaTomatoModel(nn.Module):
             num_classes=0,
         )
 
-        embed_dim = self.backbone.num_features
+        embed_dim = (
+            self.backbone.num_features
+        )
 
         self.head = nn.Sequential(
 
@@ -725,15 +422,16 @@ class GaiaTomatoModel(nn.Module):
             ),
         )
 
+
     def forward(self, x):
 
-        return self.head(
-            self.backbone(x)
-        )
+        features = self.backbone(x)
+
+        return self.head(features)
 
 
 # ============================================================
-# CHECKPOINT UTILITIES
+# CHECKPOINT
 # ============================================================
 
 def extract_state_dict(checkpoint):
@@ -745,6 +443,7 @@ def extract_state_dict(checkpoint):
 
         return checkpoint.state_dict()
 
+
     if not isinstance(
         checkpoint,
         dict,
@@ -754,6 +453,7 @@ def extract_state_dict(checkpoint):
             "Unsupported model checkpoint format."
         )
 
+
     for key in (
         "state_dict",
         "model_state_dict",
@@ -761,7 +461,9 @@ def extract_state_dict(checkpoint):
         "net",
     ):
 
-        value = checkpoint.get(key)
+        value = checkpoint.get(
+            key
+        )
 
         if isinstance(
             value,
@@ -770,10 +472,13 @@ def extract_state_dict(checkpoint):
 
             return value
 
+
     return checkpoint
 
 
-def clean_state_dict(state_dict):
+def clean_state_dict(
+    state_dict,
+):
 
     cleaned = {}
 
@@ -793,7 +498,9 @@ def clean_state_dict(state_dict):
                 "net.",
             ):
 
-                if new_key.startswith(prefix):
+                if new_key.startswith(
+                    prefix
+                ):
 
                     new_key = new_key[
                         len(prefix):
@@ -811,7 +518,7 @@ def clean_state_dict(state_dict):
 # ============================================================
 
 @st.cache_resource(
-    show_spinner=False,
+    show_spinner=False
 )
 def load_model():
 
@@ -844,7 +551,9 @@ def load_model():
         strict=True,
     )
 
-    model.to(DEVICE)
+    model.to(
+        DEVICE
+    )
 
     model.eval()
 
@@ -852,7 +561,7 @@ def load_model():
 
 
 # ============================================================
-# PREPROCESSING
+# IMAGE TRANSFORM
 # ============================================================
 
 transform = transforms.Compose([
@@ -898,11 +607,15 @@ def predict(
 
     tensor = tensor.unsqueeze(
         0
-    ).to(DEVICE)
+    ).to(
+        DEVICE
+    )
 
     with torch.inference_mode():
 
-        logits = model(tensor)
+        logits = model(
+            tensor
+        )
 
         probabilities = F.softmax(
             logits,
@@ -923,7 +636,9 @@ def predict(
 
     return (
         index.item(),
-        float(confidence.item()),
+        float(
+            confidence.item()
+        ),
         probabilities,
     )
 
@@ -951,7 +666,9 @@ def diagnostics(
     entropy = float(
         -np.sum(
             probabilities
-            * np.log(probabilities)
+            * np.log(
+                probabilities
+            )
         )
     )
 
@@ -973,7 +690,7 @@ def diagnostics(
         confidence * 100
     )
 
-    uncertain = (
+    needs_review = (
         confidence_pct < 60
         or uncertainty > 60
     )
@@ -982,7 +699,7 @@ def diagnostics(
         entropy,
         uncertainty,
         confidence_pct,
-        uncertain,
+        needs_review,
     )
 
 
@@ -990,196 +707,169 @@ def diagnostics(
 # SUPABASE SAVE
 # ============================================================
 
-def save_diagnosis_to_supabase(
+def save_to_supabase(
     uploaded_file,
-    crop,
     prediction,
     confidence,
     needs_human_review,
 ):
 
-    try:
+    supabase = get_supabase_client()
 
-        supabase = get_supabase_client()
+    now = datetime.now(
+        timezone.utc
+    )
 
-        now = datetime.now(
-            timezone.utc
+    unique_id = str(
+        uuid.uuid4()
+    )
+
+    original_name = (
+        uploaded_file.name
+        or "tomato.jpg"
+    )
+
+    extension = (
+        Path(original_name)
+        .suffix
+        .lower()
+    )
+
+    if extension not in (
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".webp",
+    ):
+
+        extension = ".jpg"
+
+
+    date_folder = now.strftime(
+        "%Y/%m/%d"
+    )
+
+    storage_path = (
+        f"diagnoses/"
+        f"{date_folder}/"
+        f"{unique_id}{extension}"
+    )
+
+
+    image_bytes = (
+        uploaded_file.getvalue()
+    )
+
+    if not image_bytes:
+
+        raise RuntimeError(
+            "The uploaded image contains no data."
         )
 
-        unique_id = str(
-            uuid.uuid4()
+
+    content_type = (
+        uploaded_file.type
+        or "image/jpeg"
+    )
+
+
+    # --------------------------------------------------------
+    # 1. STORAGE UPLOAD
+    # --------------------------------------------------------
+
+    storage = (
+        supabase
+        .storage
+        .from_(
+            SUPABASE_BUCKET
         )
+    )
 
-        original_name = (
-            uploaded_file.name
-            or "uploaded_image.jpg"
-        )
+    storage.upload(
+        storage_path,
+        image_bytes,
+        {
+            "content-type":
+                content_type,
 
-        extension = (
-            Path(original_name)
-            .suffix
-            .lower()
-        )
+            "cache-control":
+                "3600",
 
-        if extension not in (
-            ".jpg",
-            ".jpeg",
-            ".png",
-            ".webp",
-        ):
+            "upsert":
+                False,
+        },
+    )
 
-            extension = ".jpg"
 
-        date_folder = now.strftime(
-            "%Y/%m/%d"
-        )
+    # --------------------------------------------------------
+    # 2. DATABASE INSERT
+    # --------------------------------------------------------
 
-        storage_path = (
-            f"diagnoses/"
-            f"{date_folder}/"
-            f"{unique_id}{extension}"
-        )
+    record = {
 
-        image_bytes = (
-            uploaded_file.getvalue()
-        )
-
-        if not image_bytes:
-
-            raise RuntimeError(
-                "Uploaded image contains no data."
-            )
-
-        content_type = (
-            uploaded_file.type
-            or "image/jpeg"
-        )
-
-        # ----------------------------------------------------
-        # STORAGE UPLOAD
-        # ----------------------------------------------------
-
-        storage = (
-            supabase
-            .storage
-            .from_(
-                SUPABASE_BUCKET
-            )
-        )
-
-        storage.upload(
+        "image_path":
             storage_path,
-            image_bytes,
-            {
-                "content-type":
-                    content_type,
 
-                "cache-control":
-                    "3600",
+        "crop":
+            "tomato",
 
-                "upsert":
-                    False,
-            },
+        "prediction":
+            prediction,
+
+        "confidence":
+            float(confidence),
+
+        "created_at":
+            now.isoformat(),
+
+        "needs_human_review":
+            bool(
+                needs_human_review
+            ),
+
+        "human_diagnosis":
+            None,
+
+        "reviewed_at":
+            None,
+
+        "approved_for_training":
+            False,
+    }
+
+
+    response = (
+        supabase
+        .table(
+            SUPABASE_TABLE
+        )
+        .insert(
+            record
+        )
+        .execute()
+    )
+
+
+    if not response.data:
+
+        raise RuntimeError(
+            "Supabase accepted the request "
+            "but returned no inserted row."
         )
 
-        # ----------------------------------------------------
-        # DATABASE RECORD
-        # ----------------------------------------------------
 
-        record = {
+    return {
+        "storage_path":
+            storage_path,
 
-            "image_path":
-                storage_path,
-
-            "crop":
-                str(crop),
-
-            "prediction":
-                str(prediction),
-
-            "confidence":
-                float(confidence),
-
-            "created_at":
-                now.isoformat(),
-
-            "needs_human_review":
-                bool(
-                    needs_human_review
-                ),
-
-            "human_diagnosis":
-                None,
-
-            "reviewed_at":
-                None,
-
-            "approved_for_training":
-                False,
-        }
-
-        response = (
-            supabase
-            .table(
-                SUPABASE_TABLE
-            )
-            .insert(
-                record
-            )
-            .execute()
-        )
-
-        if not response.data:
-
-            raise RuntimeError(
-                "Supabase database insert "
-                "returned no record."
-            )
-
-        return {
-
-            "success":
-                True,
-
-            "storage_path":
-                storage_path,
-
-            "record":
-                response.data,
-        }
-
-    except Exception as error:
-
-        return {
-
-            "success":
-                False,
-
-            "error":
-                str(error),
-        }
+        "record":
+            response.data[0],
+    }
 
 
 # ============================================================
-# ANALYSIS SECTION
+# UPLOAD
 # ============================================================
-
-render_html("""
-<div class="glass">
-
-    <h2>
-        🔬 Analyze a tomato leaf
-    </h2>
-
-    <p>
-        Upload a clear JPG, JPEG, PNG or WEBP photograph.
-        Good lighting, focus and a visible leaf
-        generally provide better screening conditions.
-    </p>
-
-</div>
-""")
-
 
 uploaded = st.file_uploader(
 
@@ -1191,16 +881,20 @@ uploaded = st.file_uploader(
         "png",
         "webp",
     ],
-
-    label_visibility="collapsed",
 )
 
 
 # ============================================================
-# IMAGE ANALYSIS
+# ANALYSIS
 # ============================================================
 
-if uploaded is not None:
+if uploaded is None:
+
+    st.info(
+        "Upload a tomato leaf photograph to begin."
+    )
+
+else:
 
     try:
 
@@ -1216,443 +910,326 @@ if uploaded is not None:
 
         st.stop()
 
-    left, right = st.columns(
-        [0.95, 1.05],
-        gap="large",
+
+    st.subheader(
+        "Uploaded image"
     )
 
-    with left:
+    st.image(
+        image,
+        use_container_width=True,
+    )
 
-        render_html("""
-        <div class="glass">
-            <h3>Uploaded image</h3>
-        </div>
-        """)
 
-        st.image(
-            image,
-            use_container_width=True,
-        )
+    analyze = st.button(
+        "🍅 ANALYZE WITH GAIA",
+        type="primary",
+        use_container_width=True,
+    )
 
-        analyze = st.button(
-            "🍅 ANALYZE WITH GAIA",
-            use_container_width=True,
-        )
 
-    with right:
+    if analyze:
 
-        if not analyze:
+        # ----------------------------------------------------
+        # PREDICTION
+        # ----------------------------------------------------
 
-            render_html("""
-            <div class="result">
+        try:
 
-                <div class="label">
-                    READY
-                </div>
+            with st.spinner(
+                "GAIA is analyzing the leaf..."
+            ):
 
-                <div class="diagnosis">
-                    Ready to analyze
-                </div>
-
-                <p>
-                    Click <b>Analyze with GAIA</b>
-                    to run the trained
-                    Vision Transformer.
-                </p>
-
-            </div>
-            """)
-
-        else:
-
-            try:
-
-                # ====================================================
-                # MODEL PREDICTION
-                # ====================================================
-
-                with st.spinner(
-                    "GAIA is analyzing the leaf..."
-                ):
-
-                    model = load_model()
-
-                    idx, conf, probs = predict(
-                        model,
-                        image,
-                    )
-
-                disease = CLASS_NAMES[idx]
-
-                name = DISPLAY_NAMES.get(
-                    disease,
-                    disease,
-                )
+                model = load_model()
 
                 (
-                    entropy,
-                    uncertainty,
-                    confidence_pct,
-                    uncertain,
-                ) = diagnostics(
-                    probs,
-                    conf,
+                    idx,
+                    confidence,
+                    probabilities,
+                ) = predict(
+                    model,
+                    image,
                 )
 
-                # ====================================================
-                # HUMAN REVIEW FLAG
-                # ====================================================
+        except Exception as error:
 
-                needs_human_review = (
-                    confidence_pct < 60
-                    or uncertainty > 60
-                )
+            st.error(
+                "The AI model could not complete the analysis."
+            )
 
-                # ====================================================
-                # DIAGNOSTIC INFO
-                # ====================================================
+            st.exception(error)
 
-                info = DISEASE_INFO.get(
+            st.stop()
 
-                    disease,
 
-                    {
-                        "description":
-                            "GAIA detected a target condition.",
+        # ----------------------------------------------------
+        # RESULT
+        # ----------------------------------------------------
 
-                        "action":
-                            "Consult a qualified plant-health professional.",
+        disease = CLASS_NAMES[
+            idx
+        ]
 
-                        "severity":
-                            "Unknown",
-                    },
-                )
+        display_name = DISPLAY_NAMES.get(
+            disease,
+            disease,
+        )
 
-                # ====================================================
-                # SAVE TO SUPABASE
-                # ====================================================
+        (
+            entropy,
+            uncertainty,
+            confidence_pct,
+            needs_human_review,
+        ) = diagnostics(
+            probabilities,
+            confidence,
+        )
 
-                save_result = (
-                    save_diagnosis_to_supabase(
+        info = DISEASE_INFO.get(
+            disease,
+            {
+                "description":
+                    "GAIA detected a target condition.",
 
-                        uploaded_file=uploaded,
+                "action":
+                    "Consult a qualified plant-health professional.",
 
-                        crop="tomato",
+                "severity":
+                    "Unknown",
+            },
+        )
 
-                        prediction=disease,
 
-                        confidence=conf,
+        st.divider()
 
-                        needs_human_review=
-                            needs_human_review,
-                    )
-                )
+        st.subheader(
+            "GAIA Detection"
+        )
 
-                # ====================================================
-                # RESULT BOX
-                # ====================================================
+        st.success(
+            display_name
+        )
 
-                if uncertain:
+        col1, col2, col3 = st.columns(3)
 
-                    box = (
-                        '<div class="warning-box">'
-                        '⚠ <b>Lower-confidence result.</b><br>'
-                        'For best results, try a clearer close-up '
-                        'with good lighting and the affected leaf '
-                        'occupying most of the image.'
-                        '</div>'
-                    )
-
-                else:
-
-                    box = (
-                        '<div class="success-box">'
-                        '✓ <b>Prediction generated.</b><br>'
-                        'GAIA produced a relatively confident '
-                        'screening result.'
-                        '</div>'
-                    )
-
-                render_html(
-                    f"""
-                    <div class="result">
-
-                        <div class="label">
-                            GAIA DETECTION
-                        </div>
-
-                        <div class="diagnosis">
-                            {name}
-                        </div>
-
-                        <div class="label">
-                            CONFIDENCE
-                        </div>
-
-                        <div class="confidence">
-                            {confidence_pct:.2f}%
-                        </div>
-
-                        {box}
-
-                        <br>
-
-                        <b>Severity:</b>
-                        {info["severity"]}
-
-                    </div>
-                    """
-                )
-
-                st.progress(
-                    min(
-                        max(
-                            conf,
-                            0.0,
-                        ),
-                        1.0,
-                    )
-                )
-
-                # ====================================================
-                # METRICS
-                # ====================================================
-
-                c1, c2, c3 = st.columns(3)
-
-                c1.metric(
-                    "Confidence",
-                    f"{confidence_pct:.2f}%",
-                )
-
-                c2.metric(
-                    "Uncertainty",
-                    f"{uncertainty:.2f}%",
-                )
-
-                c3.metric(
-                    "Entropy",
-                    f"{entropy:.4f}",
-                )
-
-                # ====================================================
-                # TOP PREDICTIONS
-                # ====================================================
-
-                st.markdown(
-                    "### Top predictions"
-                )
-
-                top_indices = np.argsort(
-                    probs
-                )[::-1][:3]
-
-                for rank, i in enumerate(
-                    top_indices,
-                    1,
-                ):
-
-                    prediction_name = (
-                        DISPLAY_NAMES.get(
-                            CLASS_NAMES[i],
-                            CLASS_NAMES[i],
-                        )
-                    )
-
-                    prediction_pct = (
-                        float(
-                            probs[i]
-                        )
-                        * 100
-                    )
-
-                    st.write(
-                        f"**{rank}. "
-                        f"{prediction_name} — "
-                        f"{prediction_pct:.2f}%**"
-                    )
-
-                    st.progress(
-                        float(
-                            probs[i]
-                        )
-                    )
-
-                # ====================================================
-                # DIAGNOSTIC GUIDANCE
-                # ====================================================
-
-                st.markdown(
-                    "### 🌱 Diagnostic guidance"
-                )
-
-                render_html(
-                    f"""
-                    <div class="result">
-
-                        <div class="label">
-                            WHAT GAIA DETECTED
-                        </div>
-
-                        <h2>
-                            {name}
-                        </h2>
-
-                        <p>
-                            {info["description"]}
-                        </p>
-
-                        <hr>
-
-                        <div class="label">
-                            RECOMMENDED NEXT STEP
-                        </div>
-
-                        <p>
-                            {info["action"]}
-                        </p>
-
-                    </div>
-                    """
-                )
-
-                # ====================================================
-                # HEALTHY MESSAGE
-                # ====================================================
-
-                if disease == "healthy":
-
-                    st.success(
-                        "🌱 GAIA did not detect one of "
-                        "its target tomato diseases in "
-                        "this image."
-                    )
-
-                # ====================================================
-                # LOW CONFIDENCE
-                # ====================================================
-
-                if uncertain:
-
-                    st.warning(
-                        "Try a clearer close-up with good "
-                        "lighting and the affected leaf "
-                        "occupying most of the image."
-                    )
-
-                # ====================================================
-                # DATABASE SAVE RESULT
-                # ====================================================
-
-                if save_result["success"]:
-
-                    # Do NOT show internal database information
-                    # to the farmer.
-
-                    pass
-
-                else:
-
-                    # Farmer sees a friendly message.
-                    # Technical error is kept out of the UI.
-
-                    st.warning(
-                        "GAIA completed the analysis, "
-                        "but the result could not be saved "
-                        "to the diagnostic database."
-                    )
-
-                # ====================================================
-                # ADVANCED AI INFORMATION
-                # ====================================================
-
-                with st.expander(
-                    "⚙ Advanced AI information"
-                ):
-
-                    st.write(
-                        f"Model: `{MODEL_NAME}`"
-                    )
-
-                    st.write(
-                        f"Input size: "
-                        f"`{IMAGE_SIZE} × {IMAGE_SIZE}`"
-                    )
-
-                    st.write(
-                        f"Device: `{DEVICE}`"
-                    )
-
-                    st.write(
-                        f"Classes: `{NUM_CLASSES}`"
-                    )
-
-                    st.write(
-                        f"Entropy: "
-                        f"`{entropy:.6f}`"
-                    )
-
-                    st.write(
-                        f"Normalized uncertainty: "
-                        f"`{uncertainty:.2f}%`"
-                    )
-
-            except Exception:
-
-                st.error(
-                    "GAIA could not complete the analysis. "
-                    "Please try the image again."
-                )
-
-
-# ============================================================
-# NO IMAGE
-# ============================================================
-
-else:
-
-    render_html("""
-    <div class="glass"
-         style="text-align:center;margin-top:35px;">
-
-        <div style="font-size:52px;">
-            🍃
-        </div>
-
-        <h2>
-            Your crop health starts here
-        </h2>
-
-        <p>
-            Upload a tomato leaf photograph above
-            to begin AI-assisted disease screening.
-        </p>
-
-    </div>
-    """)
+        with col1:
+
+            st.metric(
+                "Confidence",
+                f"{confidence_pct:.2f}%",
+            )
+
+        with col2:
+
+            st.metric(
+                "Uncertainty",
+                f"{uncertainty:.2f}%",
+            )
+
+        with col3:
+
+            st.metric(
+                "Entropy",
+                f"{entropy:.4f}",
+            )
+
+
+        st.progress(
+            min(
+                max(
+                    confidence,
+                    0.0,
+                ),
+                1.0,
+            )
+        )
+
+
+        # ----------------------------------------------------
+        # GUIDANCE
+        # ----------------------------------------------------
+
+        st.subheader(
+            "🌱 Diagnostic guidance"
+        )
+
+        st.write(
+            info["description"]
+        )
+
+        st.write(
+            f"**Severity:** {info['severity']}"
+        )
+
+        st.write(
+            f"**Recommended next step:** "
+            f"{info['action']}"
+        )
+
+
+        if disease == "healthy":
+
+            st.info(
+                "GAIA did not detect one of its "
+                "target tomato diseases in this image."
+            )
+
+
+        if needs_human_review:
+
+            st.warning(
+                "This is a lower-confidence result. "
+                "For best results, try a clearer close-up "
+                "with good lighting and the affected leaf "
+                "occupying most of the image."
+            )
+
+
+        # ----------------------------------------------------
+        # TOP PREDICTIONS
+        # ----------------------------------------------------
+
+        st.subheader(
+            "Top predictions"
+        )
+
+        top_indices = np.argsort(
+            probabilities
+        )[::-1][:3]
+
+        for rank, class_index in enumerate(
+            top_indices,
+            1,
+        ):
+
+            prediction_name = DISPLAY_NAMES.get(
+                CLASS_NAMES[class_index],
+                CLASS_NAMES[class_index],
+            )
+
+            prediction_probability = float(
+                probabilities[class_index]
+            )
+
+            st.write(
+                f"**{rank}. "
+                f"{prediction_name} — "
+                f"{prediction_probability * 100:.2f}%**"
+            )
+
+            st.progress(
+                prediction_probability
+            )
+
+
+        # ----------------------------------------------------
+        # SUPABASE
+        # ----------------------------------------------------
+
+        st.divider()
+
+        st.subheader(
+            "☁️ Saving diagnosis"
+        )
+
+        try:
+
+            save_result = save_to_supabase(
+
+                uploaded_file=uploaded,
+
+                prediction=disease,
+
+                confidence=confidence,
+
+                needs_human_review=
+                    needs_human_review,
+            )
+
+
+            st.success(
+                "Saved to Supabase ✓"
+            )
+
+            st.write(
+                "Image path:"
+            )
+
+            st.code(
+                save_result["storage_path"]
+            )
+
+            st.write(
+                "Database row:"
+            )
+
+            st.json(
+                save_result["record"]
+            )
+
+
+        except Exception as error:
+
+            st.error(
+                "The diagnosis was generated, "
+                "but saving to Supabase failed."
+            )
+
+            st.error(
+                str(error)
+            )
+
+            st.info(
+                "If the image appears in Storage but "
+                "there is no database row, the database "
+                "INSERT/RLS policy is the part that needs "
+                "attention."
+            )
+
+
+        # ----------------------------------------------------
+        # ADVANCED
+        # ----------------------------------------------------
+
+        with st.expander(
+            "⚙ Advanced AI information"
+        ):
+
+            st.write(
+                f"Model: {MODEL_NAME}"
+            )
+
+            st.write(
+                f"Input size: "
+                f"{IMAGE_SIZE} × {IMAGE_SIZE}"
+            )
+
+            st.write(
+                f"Device: {DEVICE}"
+            )
+
+            st.write(
+                f"Classes: {NUM_CLASSES}"
+            )
+
+            st.write(
+                f"Entropy: {entropy:.6f}"
+            )
+
+            st.write(
+                f"Normalized uncertainty: "
+                f"{uncertainty:.2f}%"
+            )
 
 
 # ============================================================
 # FOOTER
 # ============================================================
 
-render_html("""
-<div class="footer">
+st.divider()
 
-    <strong>
-        GAIA Tomato AI
-    </strong>
-
-    <br><br>
-
-    AI-assisted tomato crop health screening.
-
-    <br><br>
-
-    Results are intended to support
-    agricultural decision-making and
-    should not replace assessment by a
-    qualified plant-health professional.
-
-</div>
-""")
+st.caption(
+    "GAIA Tomato AI — AI-assisted tomato crop "
+    "health screening. Results should not replace "
+    "assessment by a qualified plant-health professional."
+)
