@@ -14,14 +14,22 @@ import torch.nn.functional as F
 import torchvision.transforms as transforms
 import timm
 
-from huggingface_hub import hf_hub_download
-from supabase import create_client
-
 
 # ============================================================
 # GAIA TOMATO AI
 # Production Streamlit application
-# Supabase image + diagnosis storage integrated
+#
+# Features:
+#   - Vision Transformer tomato disease prediction
+#   - Supabase image storage
+#   - Supabase diagnosis database
+#   - Automatic human-review flag stored ONLY in database
+#   - Farmer sees diagnosis/confidence/guidance only
+# ============================================================
+
+
+# ============================================================
+# PAGE CONFIG
 # ============================================================
 
 st.set_page_config(
@@ -39,7 +47,6 @@ st.set_page_config(
 HF_REPO_ID = "Makky07/gaiatomato07"
 
 MODEL_FILENAME = "GAIA_TOMATO_VIT_BEST.pt"
-
 CONFIG_FILENAME = "GAIA_TOMATO_CONFIG.json"
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -50,41 +57,53 @@ BACKGROUND_FILES = [
 ]
 
 DEVICE = torch.device(
-    "cuda"
-    if torch.cuda.is_available()
-    else "cpu"
+    "cuda" if torch.cuda.is_available() else "cpu"
 )
 
 
 # ============================================================
 # SUPABASE CONFIGURATION
 # ============================================================
-
-# These values come from Streamlit Secrets.
 #
-# Streamlit Cloud:
+# IMPORTANT:
+#
+# Put these in Streamlit Cloud:
+#
+# Settings
+#   -> Secrets
+#
+# Example:
 #
 # SUPABASE_URL = "https://pelxleyfheicfccmprjm.supabase.co"
-# SUPABASE_KEY = "YOUR_SECRET_KEY"
+# SUPABASE_KEY = "YOUR_SERVICE_ROLE_KEY"
 #
-# DO NOT put the actual key in GitHub.
+# DO NOT put the real key in GitHub.
+#
+# The service-role key is appropriate here because this is
+# server-side Streamlit code.
+#
+# NEVER expose the service-role key to the browser.
+# ============================================================
 
 try:
+    SUPABASE_URL = st.secrets.get(
+        "SUPABASE_URL",
+        ""
+    )
 
-    SUPABASE_URL = st.secrets["SUPABASE_URL"]
-
-    SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+    SUPABASE_KEY = st.secrets.get(
+        "SUPABASE_KEY",
+        ""
+    )
 
 except Exception:
-
-    SUPABASE_URL = None
-    SUPABASE_KEY = None
+    SUPABASE_URL = ""
+    SUPABASE_KEY = ""
 
 
 SUPABASE_BUCKET = "gaia-images"
 
-# IMPORTANT:
-# Change this only if your Supabase table has another name.
+# Must match your Supabase table.
 SUPABASE_TABLE = "GAIA_Diagnosis"
 
 
@@ -94,6 +113,13 @@ SUPABASE_TABLE = "GAIA_Diagnosis"
 
 @st.cache_resource(show_spinner=False)
 def get_supabase_client():
+    """
+    Creates the Supabase client only when it is needed.
+
+    Supabase is intentionally imported here instead of at the
+    top of the file so the entire application does not crash
+    merely because the package is missing.
+    """
 
     if not SUPABASE_URL:
         raise RuntimeError(
@@ -104,6 +130,15 @@ def get_supabase_client():
         raise RuntimeError(
             "SUPABASE_KEY is missing from Streamlit Secrets."
         )
+
+    try:
+        from supabase import create_client
+    except ImportError as error:
+        raise RuntimeError(
+            "The 'supabase' Python package is not installed. "
+            "Add 'supabase' to requirements.txt and redeploy "
+            "the Streamlit application."
+        ) from error
 
     return create_client(
         SUPABASE_URL,
@@ -178,12 +213,14 @@ DISPLAY_NAMES = {
 DISEASE_INFO = {
 
     "Late_blight": {
-
         "description":
-            "A destructive disease that can rapidly damage tomato leaves, stems and fruit.",
+            "A destructive disease that can rapidly damage "
+            "tomato leaves, stems and fruit.",
 
         "action":
-            "Remove severely affected material, improve airflow and avoid prolonged leaf wetness. Follow locally approved disease-management practices.",
+            "Remove severely affected material, improve airflow "
+            "and avoid prolonged leaf wetness. Follow locally "
+            "approved disease-management practices.",
 
         "severity":
             "High",
@@ -191,12 +228,13 @@ DISEASE_INFO = {
 
 
     "Early_blight": {
-
         "description":
-            "A fungal disease commonly associated with dark lesions and concentric rings on older leaves.",
+            "A fungal disease commonly associated with dark "
+            "lesions and concentric rings on older leaves.",
 
         "action":
-            "Remove affected leaves, improve field sanitation and avoid prolonged leaf wetness.",
+            "Remove affected leaves, improve field sanitation "
+            "and avoid prolonged leaf wetness.",
 
         "severity":
             "Moderate",
@@ -204,12 +242,13 @@ DISEASE_INFO = {
 
 
     "Septoria_leaf_spot": {
-
         "description":
-            "A fungal disease producing numerous small spots, often beginning on lower leaves.",
+            "A fungal disease producing numerous small spots, "
+            "often beginning on lower leaves.",
 
         "action":
-            "Remove infected foliage, improve sanitation and reduce prolonged moisture on leaves.",
+            "Remove infected foliage, improve sanitation and "
+            "reduce prolonged moisture on leaves.",
 
         "severity":
             "Moderate",
@@ -217,12 +256,13 @@ DISEASE_INFO = {
 
 
     "Tomato_Yellow_Leaf_Curl_Virus": {
-
         "description":
-            "A viral disease commonly associated with leaf curling, yellowing and reduced plant growth.",
+            "A viral disease commonly associated with leaf "
+            "curling, yellowing and reduced plant growth.",
 
         "action":
-            "Monitor and manage whiteflies, remove severely affected plants and consider resistant varieties.",
+            "Monitor and manage whiteflies, remove severely "
+            "affected plants and consider resistant varieties.",
 
         "severity":
             "High",
@@ -230,12 +270,13 @@ DISEASE_INFO = {
 
 
     "Bacterial_spot": {
-
         "description":
-            "A bacterial disease that can produce dark spots on leaves, stems and fruit.",
+            "A bacterial disease that can produce dark spots "
+            "on leaves, stems and fruit.",
 
         "action":
-            "Maintain field sanitation, avoid handling wet plants and remove severely infected material.",
+            "Maintain field sanitation, avoid handling wet plants "
+            "and remove severely infected material.",
 
         "severity":
             "Moderate",
@@ -243,12 +284,13 @@ DISEASE_INFO = {
 
 
     "Target_Spot": {
-
         "description":
-            "A fungal disease characterized by circular target-like lesions.",
+            "A fungal disease characterized by circular "
+            "target-like lesions.",
 
         "action":
-            "Improve airflow, remove affected leaves and follow locally approved disease-management practices.",
+            "Improve airflow, remove affected leaves and follow "
+            "locally approved disease-management practices.",
 
         "severity":
             "Moderate",
@@ -256,12 +298,13 @@ DISEASE_INFO = {
 
 
     "Tomato_mosaic_virus": {
-
         "description":
-            "A viral disease that can cause mosaic patterns, leaf distortion and reduced plant growth.",
+            "A viral disease that can cause mosaic patterns, "
+            "leaf distortion and reduced plant growth.",
 
         "action":
-            "Remove severely affected plants and disinfect tools to reduce mechanical spread.",
+            "Remove severely affected plants and disinfect tools "
+            "to reduce mechanical spread.",
 
         "severity":
             "High",
@@ -269,12 +312,13 @@ DISEASE_INFO = {
 
 
     "Leaf_Mold": {
-
         "description":
-            "A fungal disease associated with humid conditions and poor ventilation.",
+            "A fungal disease associated with humid conditions "
+            "and poor ventilation.",
 
         "action":
-            "Improve ventilation, reduce humidity and minimize prolonged moisture on leaves.",
+            "Improve ventilation, reduce humidity and minimize "
+            "prolonged moisture on leaves.",
 
         "severity":
             "Moderate",
@@ -282,12 +326,14 @@ DISEASE_INFO = {
 
 
     "Spider_mites_Two_spotted_spider_mite": {
-
         "description":
-            "Spider mites feed on tomato leaves and can cause stippling, yellowing and plant stress.",
+            "Spider mites feed on tomato leaves and can cause "
+            "stippling, yellowing and plant stress.",
 
         "action":
-            "Inspect the underside of leaves and use an appropriate locally approved management strategy if infestation is confirmed.",
+            "Inspect the underside of leaves and use an appropriate "
+            "locally approved management strategy if infestation "
+            "is confirmed.",
 
         "severity":
             "Moderate",
@@ -295,12 +341,13 @@ DISEASE_INFO = {
 
 
     "Powdery_Mildew": {
-
         "description":
-            "A fungal disease characterized by powdery white growth on plant surfaces.",
+            "A fungal disease characterized by powdery white "
+            "growth on plant surfaces.",
 
         "action":
-            "Improve airflow, remove severely affected foliage and follow locally approved treatment recommendations.",
+            "Improve airflow, remove severely affected foliage "
+            "and follow locally approved treatment recommendations.",
 
         "severity":
             "Moderate",
@@ -308,12 +355,13 @@ DISEASE_INFO = {
 
 
     "healthy": {
-
         "description":
-            "GAIA did not detect one of the target tomato diseases in the uploaded image.",
+            "GAIA did not detect one of the target tomato diseases "
+            "in the uploaded image.",
 
         "action":
-            "Continue crop monitoring and maintain good irrigation, nutrition and field hygiene.",
+            "Continue crop monitoring and maintain good irrigation, "
+            "nutrition and field hygiene.",
 
         "severity":
             "Low",
@@ -343,7 +391,6 @@ def get_background_uri():
                 )
 
             except Exception:
-
                 pass
 
     return None
@@ -648,6 +695,8 @@ st.markdown(
 @st.cache_data(show_spinner=False)
 def load_config():
 
+    from huggingface_hub import hf_hub_download
+
     config_path = hf_hub_download(
         repo_id=HF_REPO_ID,
         filename=CONFIG_FILENAME,
@@ -878,6 +927,8 @@ def clean_state_dict(
 )
 def load_model():
 
+    from huggingface_hub import hf_hub_download
+
     model_path = hf_hub_download(
         repo_id=HF_REPO_ID,
         filename=MODEL_FILENAME,
@@ -1089,18 +1140,16 @@ def save_diagnosis_to_supabase(
     confidence,
     needs_human_review,
 ):
-
     """
-    Saves the original farmer image to Supabase Storage
-    and the diagnosis metadata to Supabase.
+    Save:
 
-    This information is backend data.
+        Original image
+            -> Supabase Storage
 
-    The farmer does NOT see:
-        - needs_human_review
-        - human_diagnosis
-        - reviewed_at
-        - approved_for_training
+        Prediction metadata
+            -> GAIA_Diagnosis table
+
+    The farmer does NOT see the human-review flag.
     """
 
     try:
@@ -1118,13 +1167,17 @@ def save_diagnosis_to_supabase(
 
 
         # ----------------------------------------------------
-        # Unique file name
+        # Unique ID
         # ----------------------------------------------------
 
         unique_id = str(
             uuid.uuid4()
         )
 
+
+        # ----------------------------------------------------
+        # Original filename
+        # ----------------------------------------------------
 
         original_name = (
             uploaded_file.name
@@ -1150,7 +1203,7 @@ def save_diagnosis_to_supabase(
 
 
         # ----------------------------------------------------
-        # Organize Storage by date
+        # Date organization
         # ----------------------------------------------------
 
         date_folder = now.strftime(
@@ -1166,7 +1219,7 @@ def save_diagnosis_to_supabase(
 
 
         # ----------------------------------------------------
-        # Get original bytes
+        # Image bytes
         # ----------------------------------------------------
 
         image_bytes = (
@@ -1192,7 +1245,7 @@ def save_diagnosis_to_supabase(
 
 
         # ----------------------------------------------------
-        # Upload image
+        # Supabase Storage
         # ----------------------------------------------------
 
         storage = (
@@ -1241,11 +1294,14 @@ def save_diagnosis_to_supabase(
             "created_at":
                 now.isoformat(),
 
+            # IMPORTANT:
+            # This remains backend-only.
             "needs_human_review":
                 bool(
                     needs_human_review
                 ),
 
+            # Human reviewer fields start empty.
             "human_diagnosis":
                 None,
 
@@ -1326,6 +1382,7 @@ uploaded = st.file_uploader(
         "jpg",
         "jpeg",
         "png",
+        "webp",
     ],
 
     label_visibility="collapsed",
@@ -1418,9 +1475,9 @@ if uploaded is not None:
 
             try:
 
-                # ====================================================
+                # =================================================
                 # MODEL PREDICTION
-                # ====================================================
+                # =================================================
 
                 with st.spinner(
                     "GAIA is analyzing the leaf..."
@@ -1428,9 +1485,24 @@ if uploaded is not None:
 
                     model = load_model()
 
-                    idx, conf, probs = predict(
+                    (
+                        idx,
+                        conf,
+                        probs,
+                    ) = predict(
                         model,
                         image,
+                    )
+
+
+                # =================================================
+                # PREDICTION NAME
+                # =================================================
+
+                if idx < 0 or idx >= len(CLASS_NAMES):
+
+                    raise RuntimeError(
+                        "Model returned an invalid class index."
                     )
 
 
@@ -1445,6 +1517,10 @@ if uploaded is not None:
                 )
 
 
+                # =================================================
+                # DIAGNOSTICS
+                # =================================================
+
                 (
                     entropy,
                     uncertainty,
@@ -1456,11 +1532,11 @@ if uploaded is not None:
                 )
 
 
-                # ====================================================
-                # DATABASE REVIEW FLAG
+                # =================================================
+                # INTERNAL HUMAN REVIEW FLAG
                 #
-                # This is intentionally NOT shown to farmer.
-                # ====================================================
+                # NOT DISPLAYED TO FARMER.
+                # =================================================
 
                 needs_human_review = (
                     confidence_pct < 60
@@ -1468,9 +1544,9 @@ if uploaded is not None:
                 )
 
 
-                # ====================================================
+                # =================================================
                 # DIAGNOSTIC INFORMATION
-                # ====================================================
+                # =================================================
 
                 info = DISEASE_INFO.get(
 
@@ -1490,9 +1566,9 @@ if uploaded is not None:
                 )
 
 
-                # ====================================================
+                # =================================================
                 # SAVE TO SUPABASE
-                # ====================================================
+                # =================================================
 
                 save_result = (
                     save_diagnosis_to_supabase(
@@ -1511,11 +1587,11 @@ if uploaded is not None:
                 )
 
 
-                # ====================================================
-                # RESULT BOX
+                # =================================================
+                # FARMER-FACING RESULT
                 #
-                # NO HUMAN REVIEW STATUS IS SHOWN.
-                # ====================================================
+                # HUMAN REVIEW STATUS IS NOT DISPLAYED.
+                # =================================================
 
                 if uncertain:
 
@@ -1576,24 +1652,24 @@ if uploaded is not None:
                 )
 
 
-                # ====================================================
+                # =================================================
                 # CONFIDENCE BAR
-                # ====================================================
+                # =================================================
 
                 st.progress(
                     min(
                         max(
                             conf,
-                            0.0
+                            0.0,
                         ),
                         1.0,
                     )
                 )
 
 
-                # ====================================================
+                # =================================================
                 # METRICS
-                # ====================================================
+                # =================================================
 
                 c1, c2, c3 = st.columns(
                     3
@@ -1618,21 +1694,22 @@ if uploaded is not None:
                 )
 
 
-                # ====================================================
+                # =================================================
                 # TOP PREDICTIONS
-                # ====================================================
+                # =================================================
 
                 st.markdown(
                     "### Top predictions"
                 )
 
 
+                top_indices = np.argsort(
+                    probs
+                )[::-1][:3]
+
+
                 for rank, i in enumerate(
-
-                    np.argsort(
-                        probs
-                    )[::-1][:3],
-
+                    top_indices,
                     1,
                 ):
 
@@ -1666,9 +1743,9 @@ if uploaded is not None:
                     )
 
 
-                # ====================================================
+                # =================================================
                 # DIAGNOSTIC GUIDANCE
-                # ====================================================
+                # =================================================
 
                 st.markdown(
                     "### 🌱 Diagnostic guidance"
@@ -1709,9 +1786,9 @@ if uploaded is not None:
                 )
 
 
-                # ====================================================
+                # =================================================
                 # HEALTHY MESSAGE
-                # ====================================================
+                # =================================================
 
                 if disease == "healthy":
 
@@ -1722,12 +1799,11 @@ if uploaded is not None:
                     )
 
 
-                # ====================================================
+                # =================================================
                 # LOW CONFIDENCE MESSAGE
                 #
-                # This is NOT a reviewer status.
-                # It is useful farmer-facing guidance.
-                # ====================================================
+                # This is farmer guidance, NOT reviewer status.
+                # =================================================
 
                 if uncertain:
 
@@ -1738,11 +1814,12 @@ if uploaded is not None:
                     )
 
 
-                # ====================================================
-                # DATABASE ERROR
+                # =================================================
+                # DATABASE SAVE STATUS
                 #
-                # Don't expose database internals to farmer.
-                # ====================================================
+                # We deliberately do NOT reveal the internal
+                # review flag.
+                # =================================================
 
                 if not save_result["success"]:
 
@@ -1753,9 +1830,9 @@ if uploaded is not None:
                     )
 
 
-                # ====================================================
-                # ADVANCED AI INFORMATION
-                # ====================================================
+                # =================================================
+                # ADVANCED INFORMATION
+                # =================================================
 
                 with st.expander(
                     "⚙ Advanced AI information"
