@@ -21,7 +21,6 @@ from supabase import create_client
 
 # ============================================================
 # GAIA TOMATO AI
-# Production Streamlit application
 # ============================================================
 
 st.set_page_config(
@@ -51,12 +50,9 @@ DEVICE = torch.device(
     "cuda" if torch.cuda.is_available() else "cpu"
 )
 
-SUPABASE_BUCKET = "gaia-images"
-SUPABASE_TABLE = "GAIA_Diagnosis"
-
 
 # ============================================================
-# SUPABASE SECRETS
+# SUPABASE
 # ============================================================
 
 try:
@@ -65,6 +61,9 @@ try:
 except Exception:
     SUPABASE_URL = None
     SUPABASE_KEY = None
+
+SUPABASE_BUCKET = "gaia-images"
+SUPABASE_TABLE = "GAIA_Diagnosis"
 
 
 @st.cache_resource(show_spinner=False)
@@ -86,7 +85,20 @@ def get_supabase_client():
 
 
 # ============================================================
-# MODEL CLASSES
+# HTML RENDER HELPER
+#
+# THIS FIXES THE RAW <div>, <h1>, <p>, ETC. PROBLEM.
+# ============================================================
+
+def render_html(html):
+    st.markdown(
+        textwrap.dedent(html).strip(),
+        unsafe_allow_html=True,
+    )
+
+
+# ============================================================
+# CLASSES
 # ============================================================
 
 DEFAULT_CLASSES = [
@@ -109,12 +121,14 @@ DISPLAY_NAMES = {
     "healthy": "Healthy",
     "Early_blight": "Early Blight",
     "Septoria_leaf_spot": "Septoria Leaf Spot",
-    "Tomato_Yellow_Leaf_Curl_Virus": "Tomato Yellow Leaf Curl Virus",
+    "Tomato_Yellow_Leaf_Curl_Virus":
+        "Tomato Yellow Leaf Curl Virus",
     "Bacterial_spot": "Bacterial Spot",
     "Target_Spot": "Target Spot",
     "Tomato_mosaic_virus": "Tomato Mosaic Virus",
     "Leaf_Mold": "Leaf Mold",
-    "Spider_mites_Two_spotted_spider_mite": "Two-Spotted Spider Mites",
+    "Spider_mites_Two_spotted_spider_mite":
+        "Two-Spotted Spider Mites",
     "Powdery_Mildew": "Powdery Mildew",
 }
 
@@ -125,155 +139,93 @@ DISPLAY_NAMES = {
 
 DISEASE_INFO = {
     "Late_blight": {
-        "description": (
-            "A destructive disease that can rapidly damage "
-            "tomato leaves, stems and fruit."
-        ),
-        "action": (
-            "Remove severely affected material, improve airflow "
-            "and avoid prolonged leaf wetness. Follow locally "
-            "approved disease-management practices."
-        ),
+        "description":
+            "A destructive disease that can rapidly damage tomato leaves, stems and fruit.",
+        "action":
+            "Remove severely affected material, improve airflow and avoid prolonged leaf wetness. Follow locally approved disease-management practices.",
         "severity": "High",
     },
 
     "Early_blight": {
-        "description": (
-            "A fungal disease commonly associated with dark "
-            "lesions and concentric rings on older leaves."
-        ),
-        "action": (
-            "Remove affected leaves, improve field sanitation "
-            "and avoid prolonged leaf wetness."
-        ),
+        "description":
+            "A fungal disease commonly associated with dark lesions and concentric rings on older leaves.",
+        "action":
+            "Remove affected leaves, improve field sanitation and avoid prolonged leaf wetness.",
         "severity": "Moderate",
     },
 
     "Septoria_leaf_spot": {
-        "description": (
-            "A fungal disease producing numerous small spots, "
-            "often beginning on lower leaves."
-        ),
-        "action": (
-            "Remove infected foliage, improve sanitation and "
-            "reduce prolonged moisture on leaves."
-        ),
+        "description":
+            "A fungal disease producing numerous small spots, often beginning on lower leaves.",
+        "action":
+            "Remove infected foliage, improve sanitation and reduce prolonged moisture on leaves.",
         "severity": "Moderate",
     },
 
     "Tomato_Yellow_Leaf_Curl_Virus": {
-        "description": (
-            "A viral disease commonly associated with leaf "
-            "curling, yellowing and reduced plant growth."
-        ),
-        "action": (
-            "Monitor and manage whiteflies, remove severely "
-            "affected plants and consider resistant varieties."
-        ),
+        "description":
+            "A viral disease commonly associated with leaf curling, yellowing and reduced plant growth.",
+        "action":
+            "Monitor and manage whiteflies, remove severely affected plants and consider resistant varieties.",
         "severity": "High",
     },
 
     "Bacterial_spot": {
-        "description": (
-            "A bacterial disease that can produce dark spots "
-            "on leaves, stems and fruit."
-        ),
-        "action": (
-            "Maintain field sanitation, avoid handling wet "
-            "plants and remove severely infected material."
-        ),
+        "description":
+            "A bacterial disease that can produce dark spots on leaves, stems and fruit.",
+        "action":
+            "Maintain field sanitation, avoid handling wet plants and remove severely infected material.",
         "severity": "Moderate",
     },
 
     "Target_Spot": {
-        "description": (
-            "A fungal disease characterized by circular "
-            "target-like lesions."
-        ),
-        "action": (
-            "Improve airflow, remove affected leaves and follow "
-            "locally approved disease-management practices."
-        ),
+        "description":
+            "A fungal disease characterized by circular target-like lesions.",
+        "action":
+            "Improve airflow, remove affected leaves and follow locally approved disease-management practices.",
         "severity": "Moderate",
     },
 
     "Tomato_mosaic_virus": {
-        "description": (
-            "A viral disease that can cause mosaic patterns, "
-            "leaf distortion and reduced plant growth."
-        ),
-        "action": (
-            "Remove severely affected plants and disinfect tools "
-            "to reduce mechanical spread."
-        ),
+        "description":
+            "A viral disease that can cause mosaic patterns, leaf distortion and reduced plant growth.",
+        "action":
+            "Remove severely affected plants and disinfect tools to reduce mechanical spread.",
         "severity": "High",
     },
 
     "Leaf_Mold": {
-        "description": (
-            "A fungal disease associated with humid conditions "
-            "and poor ventilation."
-        ),
-        "action": (
-            "Improve ventilation, reduce humidity and minimize "
-            "prolonged moisture on leaves."
-        ),
+        "description":
+            "A fungal disease associated with humid conditions and poor ventilation.",
+        "action":
+            "Improve ventilation, reduce humidity and minimize prolonged moisture on leaves.",
         "severity": "Moderate",
     },
 
     "Spider_mites_Two_spotted_spider_mite": {
-        "description": (
-            "Spider mites feed on tomato leaves and can cause "
-            "stippling, yellowing and plant stress."
-        ),
-        "action": (
-            "Inspect the underside of leaves and use an "
-            "appropriate locally approved management strategy "
-            "if infestation is confirmed."
-        ),
+        "description":
+            "Spider mites feed on tomato leaves and can cause stippling, yellowing and plant stress.",
+        "action":
+            "Inspect the underside of leaves and use an appropriate locally approved management strategy if infestation is confirmed.",
         "severity": "Moderate",
     },
 
     "Powdery_Mildew": {
-        "description": (
-            "A fungal disease characterized by powdery white "
-            "growth on plant surfaces."
-        ),
-        "action": (
-            "Improve airflow, remove severely affected foliage "
-            "and follow locally approved treatment recommendations."
-        ),
+        "description":
+            "A fungal disease characterized by powdery white growth on plant surfaces.",
+        "action":
+            "Improve airflow, remove severely affected foliage and follow locally approved treatment recommendations.",
         "severity": "Moderate",
     },
 
     "healthy": {
-        "description": (
-            "GAIA did not detect one of the target tomato "
-            "diseases in the uploaded image."
-        ),
-        "action": (
-            "Continue crop monitoring and maintain good "
-            "irrigation, nutrition and field hygiene."
-        ),
+        "description":
+            "GAIA did not detect one of the target tomato diseases in the uploaded image.",
+        "action":
+            "Continue crop monitoring and maintain good irrigation, nutrition and field hygiene.",
         "severity": "Low",
     },
 }
-
-
-# ============================================================
-# HTML RENDER HELPER
-#
-# THIS FIXES THE PROBLEM IN YOUR SCREENSHOT.
-#
-# textwrap.dedent removes the indentation before HTML tags,
-# preventing Streamlit from treating them as Markdown code.
-# ============================================================
-
-def render_html(html):
-    st.markdown(
-        textwrap.dedent(html).strip(),
-        unsafe_allow_html=True,
-    )
 
 
 # ============================================================
@@ -281,20 +233,24 @@ def render_html(html):
 # ============================================================
 
 def get_background_uri():
+
     for path in BACKGROUND_FILES:
-        if path.exists():
-            try:
-                encoded = base64.b64encode(
-                    path.read_bytes()
-                ).decode("utf-8")
 
-                return (
-                    "data:image/jpeg;base64,"
-                    + encoded
-                )
+        if not path.exists():
+            continue
 
-            except Exception:
-                continue
+        try:
+            encoded = base64.b64encode(
+                path.read_bytes()
+            ).decode("utf-8")
+
+            return (
+                "data:image/jpeg;base64,"
+                + encoded
+            )
+
+        except Exception:
+            continue
 
     return None
 
@@ -335,10 +291,10 @@ else:
 
 
 # ============================================================
-# UI STYLE
+# CSS
 # ============================================================
 
-render_html(
+st.markdown(
     f"""
     <style>
 
@@ -487,7 +443,7 @@ render_html(
         padding: 10px;
     }}
 
-    .stButton > button {{
+    .stButton>button {{
         width: 100%;
         border-radius: 14px;
         border: none;
@@ -498,7 +454,7 @@ render_html(
         font-size: 16px;
     }}
 
-    .stButton > button:hover {{
+    .stButton>button:hover {{
         background: #a0ed7e;
     }}
 
@@ -535,7 +491,8 @@ render_html(
     }}
 
     </style>
-    """
+    """,
+    unsafe_allow_html=True,
 )
 
 
@@ -546,6 +503,7 @@ render_html(
 render_html(
     """
     <div class="nav">
+
         <div class="brand">
             GAIA<span>🍅</span>
         </div>
@@ -553,6 +511,7 @@ render_html(
         <div class="nav-right">
             TOMATO HEALTH INTELLIGENCE
         </div>
+
     </div>
     """
 )
@@ -587,7 +546,7 @@ render_html(
 
 
 # ============================================================
-# LOAD MODEL CONFIGURATION
+# MODEL CONFIG
 # ============================================================
 
 @st.cache_data(show_spinner=False)
@@ -603,6 +562,7 @@ def load_config():
         "r",
         encoding="utf-8",
     ) as file:
+
         return json.load(file)
 
 
@@ -617,7 +577,6 @@ except Exception as error:
     )
 
     st.code(str(error))
-
     st.stop()
 
 
@@ -683,30 +642,19 @@ class GaiaTomatoModel(nn.Module):
                 embed_dim,
                 1024,
             ),
-
             nn.GELU(),
-
-            nn.Dropout(
-                0.30
-            ),
-
+            nn.Dropout(0.30),
             nn.Linear(
                 1024,
                 512,
             ),
-
             nn.GELU(),
-
-            nn.Dropout(
-                0.20
-            ),
-
+            nn.Dropout(0.20),
             nn.Linear(
                 512,
                 num_classes,
             ),
         )
-
 
     def forward(self, x):
 
@@ -716,7 +664,7 @@ class GaiaTomatoModel(nn.Module):
 
 
 # ============================================================
-# CHECKPOINT UTILITIES
+# CHECKPOINT
 # ============================================================
 
 def extract_state_dict(checkpoint):
@@ -727,16 +675,13 @@ def extract_state_dict(checkpoint):
     ):
         return checkpoint.state_dict()
 
-
     if not isinstance(
         checkpoint,
         dict,
     ):
-
         raise RuntimeError(
             "Unsupported model checkpoint format."
         )
-
 
     for key in (
         "state_dict",
@@ -751,9 +696,7 @@ def extract_state_dict(checkpoint):
             value,
             dict,
         ):
-
             return value
-
 
     return checkpoint
 
@@ -845,9 +788,7 @@ transform = transforms.Compose(
                 IMAGE_SIZE,
             )
         ),
-
         transforms.ToTensor(),
-
         transforms.Normalize(
             [
                 0.485,
@@ -938,7 +879,9 @@ def diagnostics(
     )
 
     uncertainty = (
-        entropy / max_entropy * 100
+        entropy
+        / max_entropy
+        * 100
         if max_entropy > 0
         else 0.0
     )
@@ -959,7 +902,7 @@ def diagnostics(
 
 
 # ============================================================
-# SAVE IMAGE + DIAGNOSIS
+# SAVE TO SUPABASE
 # ============================================================
 
 def save_diagnosis_to_supabase(
@@ -999,7 +942,6 @@ def save_diagnosis_to_supabase(
             ".png",
             ".webp",
         ):
-
             extension = ".jpg"
 
         date_folder = now.strftime(
@@ -1012,7 +954,9 @@ def save_diagnosis_to_supabase(
             f"{unique_id}{extension}"
         )
 
-        image_bytes = uploaded_file.getvalue()
+        image_bytes = (
+            uploaded_file.getvalue()
+        )
 
         if not image_bytes:
 
@@ -1035,24 +979,42 @@ def save_diagnosis_to_supabase(
             storage_path,
             image_bytes,
             {
-                "content-type": content_type,
-                "cache-control": "3600",
-                "upsert": False,
+                "content-type":
+                    content_type,
+                "cache-control":
+                    "3600",
+                "upsert":
+                    False,
             },
         )
 
         record = {
-            "image_path": storage_path,
-            "crop": crop,
-            "prediction": prediction,
-            "confidence": float(confidence),
-            "created_at": now.isoformat(),
-            "needs_human_review": bool(
-                needs_human_review
-            ),
-            "human_diagnosis": None,
-            "reviewed_at": None,
-            "approved_for_training": False,
+            "image_path":
+                storage_path,
+
+            "crop":
+                crop,
+
+            "prediction":
+                prediction,
+
+            "confidence":
+                float(confidence),
+
+            "created_at":
+                now.isoformat(),
+
+            "needs_human_review":
+                bool(needs_human_review),
+
+            "human_diagnosis":
+                None,
+
+            "reviewed_at":
+                None,
+
+            "approved_for_training":
+                False,
         }
 
         response = (
@@ -1077,7 +1039,7 @@ def save_diagnosis_to_supabase(
 
 
 # ============================================================
-# ANALYSIS CARD
+# UPLOAD CARD
 # ============================================================
 
 render_html(
@@ -1098,10 +1060,6 @@ render_html(
     """
 )
 
-
-# ============================================================
-# FILE UPLOAD
-# ============================================================
 
 uploaded = st.file_uploader(
     "Upload tomato leaf image",
@@ -1189,14 +1147,9 @@ if uploaded is not None:
                 """
             )
 
-
         else:
 
             try:
-
-                # ------------------------------------------------
-                # MODEL PREDICTION
-                # ------------------------------------------------
 
                 with st.spinner(
                     "GAIA is analyzing the leaf..."
@@ -1209,14 +1162,12 @@ if uploaded is not None:
                         image,
                     )
 
-
                 disease = CLASS_NAMES[idx]
 
                 name = DISPLAY_NAMES.get(
                     disease,
                     disease,
                 )
-
 
                 (
                     entropy,
@@ -1228,18 +1179,12 @@ if uploaded is not None:
                     conf,
                 )
 
-
-                # ------------------------------------------------
-                # BACKEND REVIEW FLAG
-                #
-                # NOT SHOWN TO FARMER.
-                # ------------------------------------------------
-
+                # Backend-only flag.
+                # NOT displayed to farmer.
                 needs_human_review = (
                     confidence_pct < 60
                     or uncertainty > 60
                 )
-
 
                 info = DISEASE_INFO.get(
                     disease,
@@ -1255,11 +1200,6 @@ if uploaded is not None:
                     },
                 )
 
-
-                # ------------------------------------------------
-                # SAVE TO SUPABASE
-                # ------------------------------------------------
-
                 save_result = (
                     save_diagnosis_to_supabase(
                         uploaded_file=uploaded,
@@ -1271,22 +1211,14 @@ if uploaded is not None:
                     )
                 )
 
-
-                # ------------------------------------------------
-                # FARMER-FACING RESULT
-                #
-                # IMPORTANT:
-                # Human review status is NOT displayed.
-                # ------------------------------------------------
-
                 if uncertain:
 
                     box = (
                         '<div class="warning-box">'
-                        '<b>Lower-confidence result.</b><br>'
+                        '<b>⚠ Lower-confidence result.</b><br>'
                         'Try a clearer close-up with good lighting '
-                        'and the affected leaf occupying most of '
-                        'the image.'
+                        'and the affected leaf occupying most '
+                        'of the image.'
                         '</div>'
                     )
 
@@ -1294,12 +1226,18 @@ if uploaded is not None:
 
                     box = (
                         '<div class="success-box">'
-                        '<b>Prediction generated.</b><br>'
+                        '<b>✓ Prediction generated.</b><br>'
                         'GAIA produced a relatively confident '
                         'screening result.'
                         '</div>'
                     )
 
+
+                # ====================================================
+                # FARMER RESULT
+                #
+                # HUMAN REVIEW STATUS IS NOT DISPLAYED.
+                # ====================================================
 
                 render_html(
                     f"""
@@ -1333,10 +1271,6 @@ if uploaded is not None:
                 )
 
 
-                # ------------------------------------------------
-                # CONFIDENCE
-                # ------------------------------------------------
-
                 st.progress(
                     min(
                         max(
@@ -1348,9 +1282,9 @@ if uploaded is not None:
                 )
 
 
-                # ------------------------------------------------
+                # ====================================================
                 # METRICS
-                # ------------------------------------------------
+                # ====================================================
 
                 c1, c2, c3 = st.columns(3)
 
@@ -1370,21 +1304,16 @@ if uploaded is not None:
                 )
 
 
-                # ------------------------------------------------
+                # ====================================================
                 # TOP PREDICTIONS
-                # ------------------------------------------------
+                # ====================================================
 
                 st.markdown(
                     "### Top predictions"
                 )
 
-                top_indices = np.argsort(
-                    probs
-                )[::-1][:3]
-
-
                 for rank, i in enumerate(
-                    top_indices,
+                    np.argsort(probs)[::-1][:3],
                     1,
                 ):
 
@@ -1396,7 +1325,8 @@ if uploaded is not None:
                     )
 
                     prediction_pct = (
-                        float(probs[i]) * 100
+                        float(probs[i])
+                        * 100
                     )
 
                     st.write(
@@ -1410,9 +1340,9 @@ if uploaded is not None:
                     )
 
 
-                # ------------------------------------------------
+                # ====================================================
                 # GUIDANCE
-                # ------------------------------------------------
+                # ====================================================
 
                 st.markdown(
                     "### 🌱 Diagnostic guidance"
@@ -1449,10 +1379,6 @@ if uploaded is not None:
                 )
 
 
-                # ------------------------------------------------
-                # HEALTHY
-                # ------------------------------------------------
-
                 if disease == "healthy":
 
                     st.success(
@@ -1461,12 +1387,6 @@ if uploaded is not None:
                         "this image."
                     )
 
-
-                # ------------------------------------------------
-                # LOW CONFIDENCE
-                #
-                # This is farmer guidance, NOT reviewer status.
-                # ------------------------------------------------
 
                 if uncertain:
 
@@ -1477,9 +1397,11 @@ if uploaded is not None:
                     )
 
 
-                # ------------------------------------------------
-                # DATABASE SAVE ERROR
-                # ------------------------------------------------
+                # ====================================================
+                # DATABASE FAILURE
+                #
+                # Do not expose internal Supabase details.
+                # ====================================================
 
                 if not save_result["success"]:
 
@@ -1490,9 +1412,9 @@ if uploaded is not None:
                     )
 
 
-                # ------------------------------------------------
-                # ADVANCED INFORMATION
-                # ------------------------------------------------
+                # ====================================================
+                # ADVANCED INFO
+                # ====================================================
 
                 with st.expander(
                     "⚙ Advanced AI information"
@@ -1526,19 +1448,15 @@ if uploaded is not None:
                     )
 
 
-            except Exception as error:
+            except Exception:
 
                 st.error(
                     "GAIA could not complete the analysis."
                 )
 
-                st.code(
-                    str(error)
-                )
-
 
 # ============================================================
-# NO IMAGE
+# EMPTY STATE
 # ============================================================
 
 else:
@@ -1578,11 +1496,13 @@ render_html(
             GAIA Tomato AI
         </strong>
 
-        <br><br>
+        <br>
+        <br>
 
         AI-assisted tomato crop health screening.
 
-        <br><br>
+        <br>
+        <br>
 
         Results are intended to support
         agricultural decision-making and
