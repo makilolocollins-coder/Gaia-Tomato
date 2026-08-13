@@ -301,7 +301,7 @@ def diagnostics(probs, confidence):
         else "Moderate confidence"
     )
     return entropy, uncertainty, confidence_pct, uncertain, status
-,
+
 )
 def save_diagnosis_to_supabase(
     uploaded_file,
