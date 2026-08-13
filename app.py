@@ -301,6 +301,258 @@ def diagnostics(probs, confidence):
         else "Moderate confidence"
     )
     return entropy, uncertainty, confidence_pct, uncertain, status
+,
+)
+def save_diagnosis_to_supabase(
+    uploaded_file,
+    crop,
+    prediction,
+    confidence,
+    needs_human_review,
+):
+    """
+    Upload the diagnosed image to Supabase Storage first,
+    then create the corresponding database row.
+
+    Storage structure:
+
+        gaia-images/
+            Late_blight/
+                2026/08/13/
+                    abc123.jpg
+
+            Early_blight/
+                2026/08/13/
+                    abc123.jpg
+
+            healthy/
+                2026/08/13/
+                    abc123.jpg
+
+    The exact Storage path is saved in:
+        GAIA Diagnosis Database.image_path
+    """
+
+    supabase = None
+    storage_path = None
+
+    try:
+        # --------------------------------------------------------
+        # SUPABASE CLIENT
+        # --------------------------------------------------------
+
+        supabase = get_supabase_client()
+
+        # --------------------------------------------------------
+        # TIME
+        # --------------------------------------------------------
+
+        now = datetime.now(timezone.utc)
+
+        date_folder = now.strftime("%Y/%m/%d")
+
+        # --------------------------------------------------------
+        # CLEAN DISEASE CLASS
+        # --------------------------------------------------------
+
+        # Use the model class exactly as returned by CLASS_NAMES.
+        # Example:
+        # Late_blight
+        # Early_blight
+        # healthy
+
+        disease_class = str(prediction).strip()
+
+        if not disease_class:
+            raise RuntimeError(
+                "GAIA returned an empty disease class."
+            )
+
+        # Prevent accidental path traversal.
+        disease_class = (
+            disease_class
+            .replace("/", "_")
+            .replace("\\", "_")
+            .replace("..", "_")
+        )
+
+        # --------------------------------------------------------
+        # UNIQUE IMAGE ID
+        # --------------------------------------------------------
+
+        unique_id = uuid.uuid4().hex
+
+        # --------------------------------------------------------
+        # FILE EXTENSION
+        # --------------------------------------------------------
+
+        original_name = (
+            uploaded_file.name
+            or "tomato_leaf.jpg"
+        )
+
+        extension = (
+            Path(original_name)
+            .suffix
+            .lower()
+        )
+
+        if extension not in {
+            ".jpg",
+            ".jpeg",
+            ".png",
+            ".webp",
+        }:
+            extension = ".jpg"
+
+        # --------------------------------------------------------
+        # STORAGE PATH
+        # --------------------------------------------------------
+
+        storage_path = (
+            f"{disease_class}/"
+            f"{date_folder}/"
+            f"{unique_id}{extension}"
+        )
+
+        # Example:
+        #
+        # Late_blight/2026/08/13/9f3a2c....jpg
+        #
+
+        # --------------------------------------------------------
+        # IMAGE BYTES
+        # --------------------------------------------------------
+
+        image_bytes = uploaded_file.getvalue()
+
+        if not image_bytes:
+            raise RuntimeError(
+                "The uploaded image contains no data."
+            )
+
+        # --------------------------------------------------------
+        # CONTENT TYPE
+        # --------------------------------------------------------
+
+        content_type = (
+            uploaded_file.type
+            or "image/jpeg"
+        )
+
+        # --------------------------------------------------------
+        # STORAGE BUCKET
+        # --------------------------------------------------------
+
+        storage = (
+            supabase
+            .storage
+            .from_("gaia-images")
+        )
+
+        # --------------------------------------------------------
+        # UPLOAD IMAGE
+        # --------------------------------------------------------
+
+        upload_result = storage.upload(
+            storage_path,
+            image_bytes,
+            {
+                "content-type": content_type,
+                "cache-control": "3600",
+                "upsert": False,
+            },
+        )
+
+        # --------------------------------------------------------
+        # IMPORTANT:
+        # SUPABASE STORAGE MUST RETURN A RESULT
+        # --------------------------------------------------------
+
+        if upload_result is None:
+            raise RuntimeError(
+                "Supabase Storage returned no upload response."
+            )
+
+        # --------------------------------------------------------
+        # DATABASE RECORD
+        # --------------------------------------------------------
+
+        record = {
+            "image_path": storage_path,
+            "crop": crop,
+            "prediction": disease_class,
+            "confidence": float(confidence),
+            "created_at": now.isoformat(),
+            "needs_human_review": bool(
+                needs_human_review
+            ),
+            "human_diagnosis": None,
+            "reviewed_at": None,
+            "approved_for_training": False,
+        }
+
+        # --------------------------------------------------------
+        # INSERT DATABASE ROW
+        # --------------------------------------------------------
+
+        response = (
+            supabase
+            .table("GAIA Diagnosis Database")
+            .insert(record)
+            .execute()
+        )
+
+        # --------------------------------------------------------
+        # VERIFY DATABASE INSERT
+        # --------------------------------------------------------
+
+        if not response.data:
+            raise RuntimeError(
+                "Supabase accepted the request but "
+                "returned no database row."
+            )
+
+        # --------------------------------------------------------
+        # SUCCESS
+        # --------------------------------------------------------
+
+        return {
+            "success": True,
+            "storage_path": storage_path,
+            "record": response.data[0],
+        }
+
+    except Exception as error:
+
+        # --------------------------------------------------------
+        # CLEANUP
+        #
+        # If Storage succeeded but the database insert failed,
+        # remove the orphaned Storage image.
+        # --------------------------------------------------------
+
+        if (
+            supabase is not None
+            and storage_path is not None
+        ):
+            try:
+                (
+                    supabase
+                    .storage
+                    .from_("gaia-images")
+                    .remove([storage_path])
+                )
+            except Exception:
+                # Do not replace the original error with
+                # a cleanup error.
+                pass
+
+        return {
+            "success": False,
+            "storage_path": storage_path,
+            "error": str(error),
+        }
 
 
 st.markdown(
